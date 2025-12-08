@@ -73,26 +73,8 @@ const MoonIcon = () => (
 
 const App: React.FC = () => {
   // --- API KEY Handling ---
-  const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('mrcute_api_key') || '');
-  const [inputKey, setInputKey] = useState('');
-  
-  // Use environment variable first, then user entered key
-  const effectiveApiKey = process.env.API_KEY || userApiKey;
-
-  const handleSaveKey = () => {
-    if (inputKey.trim().length > 10) {
-      localStorage.setItem('mrcute_api_key', inputKey.trim());
-      setUserApiKey(inputKey.trim());
-    } else {
-      alert("Please enter a valid API Key.");
-    }
-  };
-
-  const handleClearKey = () => {
-    localStorage.removeItem('mrcute_api_key');
-    setUserApiKey('');
-    window.location.reload();
-  };
+  // The API Key must be obtained exclusively from the environment variable.
+  const apiKey = process.env.API_KEY;
 
   const [activeTab, setActiveTab] = useState('home');
   const [targetLanguage, setTargetLanguage] = useState('English');
@@ -213,8 +195,8 @@ const App: React.FC = () => {
 
   // --- Functions ---
   const handleConnect = useCallback(() => {
-    connect(effectiveApiKey, settings.voice, targetLanguage);
-  }, [connect, effectiveApiKey, settings.voice, targetLanguage]);
+    if (apiKey) connect(apiKey, settings.voice, targetLanguage);
+  }, [connect, apiKey, settings.voice, targetLanguage]);
 
   // --- Voice Command Listener for "Start Recording" ---
   useEffect(() => {
@@ -266,7 +248,6 @@ const App: React.FC = () => {
       date: new Date().toISOString(),
       content,
       preview,
-      // @ts-ignore
       image: imageData,
       mimeType: mimeType
     };
@@ -299,7 +280,7 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if ((!chatInput.trim() && !chatAttachment)) return;
+    if ((!chatInput.trim() && !chatAttachment) || !apiKey) return;
     
     const userMsgText = chatInput.trim();
     const currentAttachment = chatAttachment;
@@ -317,7 +298,7 @@ const App: React.FC = () => {
     setIsChatLoading(true);
 
     try {
-      const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
+      const genAI = new GoogleGenAI({ apiKey: apiKey });
       chatSessionRef.current = genAI.chats.create({
         model: "gemini-2.5-flash",
         config: {
@@ -351,7 +332,7 @@ const App: React.FC = () => {
   };
 
   const handleContextSendMessage = async (contextText: string, contextImage?: string, mimeType?: string) => {
-    if (!contextInput.trim()) return;
+    if (!contextInput.trim() || !apiKey) return;
 
     const userText = contextInput;
     setContextInput('');
@@ -359,7 +340,7 @@ const App: React.FC = () => {
     setIsContextLoading(true);
 
     try {
-        const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
+        const genAI = new GoogleGenAI({ apiKey: apiKey });
         
         if (!contextSessionRef.current) {
             contextSessionRef.current = genAI.chats.create({
@@ -457,7 +438,7 @@ const App: React.FC = () => {
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !apiKey) return;
 
     setUploadStatus('uploading');
     setContextMessages([]); 
@@ -480,7 +461,7 @@ const App: React.FC = () => {
         
         setUploadStatus('analyzing');
 
-        const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
+        const genAI = new GoogleGenAI({ apiKey: apiKey });
         let responseText = "";
         let parts: any[] = [];
         let prompt = "";
@@ -598,693 +579,620 @@ const App: React.FC = () => {
             <div className="p-3 bg-white dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/50 text-center">
                 <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Ask AI about this content</span>
             </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                {contextMessages.length === 0 && (
-                    <div className="text-center text-slate-500 dark:text-slate-600 text-xs mt-4">Ask a question to start...</div>
-                )}
-                {contextMessages.map(msg => (
-                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] rounded-xl p-3 text-sm ${
-                          msg.role === 'user' 
-                            ? 'bg-blue-600 text-white' 
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-transparent shadow-sm'
-                        }`}>
-                            {msg.text}
-                        </div>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-3">
+               {contextMessages.map((msg) => (
+                  <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                     <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
+                        msg.role === 'user' 
+                        ? 'bg-blue-600 text-white rounded-br-sm' 
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-bl-sm border border-slate-200 dark:border-slate-700'
+                     }`}>
+                        {msg.text}
+                     </div>
+                  </div>
+               ))}
+               {isContextLoading && (
+                 <div className="flex justify-start">
+                    <div className="bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-bl-sm border border-slate-200 dark:border-slate-700">
+                       <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
+                          <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                          <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+                       </div>
                     </div>
-                ))}
-                {isContextLoading && (
-                   <div className="flex justify-start">
-                      <div className="bg-white dark:bg-slate-800 rounded-xl p-3 flex gap-1 shadow-sm">
-                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"/>
-                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75"/>
-                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150"/>
-                      </div>
-                   </div>
-                )}
+                 </div>
+               )}
             </div>
-            <div className="p-3 flex gap-2 border-t border-slate-200 dark:border-slate-700/50 bg-white dark:bg-slate-800/30">
+            <div className="p-3 bg-white dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700/50 flex gap-2">
                 <input 
-                  className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-4 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500"
-                  placeholder="Ask a follow-up question..."
+                  type="text"
                   value={contextInput}
                   onChange={(e) => setContextInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleContextSendMessage(contextText, contextImage, mimeType)}
+                  placeholder="Ask a follow-up question..."
+                  className="flex-1 bg-slate-100 dark:bg-slate-700/50 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button 
                   onClick={() => handleContextSendMessage(contextText, contextImage, mimeType)}
-                  disabled={isContextLoading || !contextInput.trim()}
-                  className="p-2 bg-blue-600 rounded-full text-white disabled:opacity-50 hover:bg-blue-500 transition-colors"
+                  className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl disabled:opacity-50"
+                  disabled={!contextInput.trim() || isContextLoading}
                 >
-                    <SendIcon />
+                  <SendIcon />
                 </button>
             </div>
         </div>
      );
   };
 
-  // --- SHOW KEY ENTRY SCREEN IF NO KEY ---
-  if (!effectiveApiKey) {
+  // --- Render Error State if API Key is Missing ---
+  if (!apiKey) {
     return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-4 font-sans">
-        <div className="max-w-md w-full bg-slate-800 p-8 rounded-3xl shadow-2xl border border-slate-700/50">
-          <div className="w-16 h-16 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
-             <SettingsIcon active={true} />
-          </div>
-          <h1 className="text-2xl font-bold mb-2 text-center">Welcome to MRCUTE AI</h1>
-          <p className="mb-8 text-slate-400 text-center text-sm">To start using the app, please enter your Google Gemini API Key.</p>
-          
-          <div className="space-y-4">
-             <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Google Gemini API Key</label>
-                <input 
-                  type="password"
-                  value={inputKey}
-                  onChange={(e) => setInputKey(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-blue-500 transition-colors"
-                  placeholder="AIzaSy..."
-                />
-             </div>
-             
-             <button 
-                onClick={handleSaveKey}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20"
-             >
-                Start App
-             </button>
-             
-             <p className="text-xs text-center text-slate-500 mt-4">
-                Don't have a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Get one from Google AI Studio</a>
-             </p>
-          </div>
+      <div className="flex flex-col items-center justify-center h-screen bg-white dark:bg-[#0b1121] text-slate-800 dark:text-slate-300 p-6 text-center">
+        <div className="bg-red-100 dark:bg-red-500/10 p-6 rounded-full mb-6 text-red-500">
+           <AlertIcon />
         </div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Configuration Required</h1>
+        <p className="max-w-md mb-8 text-slate-600 dark:text-slate-400">
+          The <code>API_KEY</code> environment variable is missing. The app cannot connect to Google Gemini without it.
+        </p>
+        <div className="bg-slate-100 dark:bg-slate-800 p-6 rounded-xl text-left text-sm font-mono w-full max-w-lg shadow-lg border border-slate-200 dark:border-slate-700">
+           <p className="mb-2 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-xs">Instructions for Vercel / .env</p>
+           <div className="space-y-4">
+             <div>
+                <p className="text-slate-600 dark:text-slate-400 mb-1">Key:</p>
+                <div className="bg-white dark:bg-slate-900 p-2 rounded border border-slate-300 dark:border-slate-600 select-all">API_KEY</div>
+             </div>
+             <div>
+                <p className="text-slate-600 dark:text-slate-400 mb-1">Value:</p>
+                <div className="bg-white dark:bg-slate-900 p-2 rounded border border-slate-300 dark:border-slate-600 break-all select-all text-blue-600 dark:text-blue-400">
+                  {/* We do not hardcode the key here, but user knows what to put */}
+                  AIzaSy... (Your provided API Key)
+                </div>
+             </div>
+           </div>
+        </div>
+        <button 
+          onClick={() => window.location.reload()}
+          className="mt-8 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-colors"
+        >
+          I've Added It, Reload App
+        </button>
       </div>
     );
   }
 
+  // --- Main Render ---
   return (
-    <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-[#0b1121] text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-500/30 transition-colors duration-300">
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#0b1121] text-slate-900 dark:text-slate-100 transition-colors duration-300">
       
-      {/* --- Top Header --- */}
-      <header className="px-6 pt-6 pb-2 flex justify-between items-center z-10 shrink-0">
+      {/* Top Bar */}
+      <header className="px-6 py-5 flex justify-between items-center bg-white/80 dark:bg-[#0b1121]/80 backdrop-blur-md sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">
-            <span className="text-slate-800 dark:text-white">MRCUTE</span> <span className="text-blue-600 dark:text-blue-500">AI</span>
+          <h1 className="text-2xl font-black tracking-tight text-blue-600 dark:text-blue-500">
+            MRCUTE <span className="text-slate-800 dark:text-white">AI</span>
           </h1>
-          <p className="text-slate-500 text-sm font-medium mt-0.5">Hello, biruk</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">Smart Assistant & Notes</p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 overflow-hidden ring-2 ring-slate-200 dark:ring-slate-800 ring-offset-2 ring-offset-slate-50 dark:ring-offset-[#0b1121]">
-          <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=biruk" alt="User" className="w-full h-full" />
+        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-400 p-[2px]">
+           <div className="w-full h-full rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+             {/* Avatar placeholder */}
+             <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User" />
+           </div>
         </div>
       </header>
 
-      {/* --- Main Content Area --- */}
-      <main className="flex-1 flex flex-col relative px-4 pb-24 overflow-hidden">
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-hidden relative">
         
-        {error && (
-            <div className="mb-4 mx-1 p-3 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/50 rounded-lg flex items-center gap-3 text-red-600 dark:text-red-200 text-sm animate-fade-in shrink-0">
-                <AlertIcon />
-                <span>{error}</span>
-            </div>
-        )}
-
-        {/* --- HOME TAB (Live) --- */}
+        {/* HOME TAB */}
         {activeTab === 'home' && (
-          <>
-            <div className="flex-1 bg-white/80 dark:bg-[#161e32]/80 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700/50 shadow-xl dark:shadow-2xl overflow-hidden flex flex-col mt-4 mb-2 relative transition-colors duration-300">
-              <div className="h-14 px-5 flex items-center justify-between border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-[#1e293b]/50 shrink-0">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-red-500 animate-pulse' : 'bg-slate-400 dark:bg-slate-500'}`}></div>
-                    <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Live Transcript</span>
-                  </div>
-                  <div className="relative group">
-                     <select 
-                       value={targetLanguage} 
-                       onChange={(e) => setTargetLanguage(e.target.value)}
-                       disabled={isConnected}
-                       className="appearance-none bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 px-3 py-1 rounded-md border border-slate-200 dark:border-slate-600 focus:outline-none focus:border-blue-500 disabled:opacity-50 shadow-sm"
-                     >
-                        <option value="English">English</option>
-                        <option value="Spanish">Spanish</option>
-                        <option value="French">French</option>
-                        <option value="German">German</option>
-                        <option value="Japanese">Japanese</option>
-                        <option value="Chinese">Chinese</option>
-                     </select>
-                  </div>
+          <div className="h-full flex flex-col p-4">
+            {/* Transcript Card */}
+            <div className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl p-5 shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col relative overflow-hidden transition-colors duration-300">
+              <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-100 dark:border-slate-700">
+                <div className="flex items-center gap-3">
+                   <div className={`p-2 rounded-xl ${isConnected ? 'bg-red-500/10 text-red-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                     <MicIcon className={`w-5 h-5 ${isConnected ? 'animate-pulse' : ''}`} />
+                   </div>
+                   <div>
+                     <h2 className="font-bold text-slate-800 dark:text-white">Live Transcript</h2>
+                     <p className="text-xs text-slate-500 dark:text-slate-400">
+                       {isConnected ? 'Listening & Analyzing...' : 'Ready to record'}
+                     </p>
+                   </div>
                 </div>
-                <div className="w-32 h-8 flex items-center justify-end">
-                   <Visualizer volume={volume} isActive={isConnected} />
+                <div className="flex items-center gap-3">
+                   {/* Language Selector */}
+                   <select 
+                     value={targetLanguage}
+                     onChange={(e) => setTargetLanguage(e.target.value)}
+                     className="bg-slate-100 dark:bg-slate-800 text-xs font-medium px-3 py-1.5 rounded-lg outline-none border-none text-slate-700 dark:text-slate-300"
+                     disabled={isConnected}
+                   >
+                     <option>English</option>
+                     <option>Spanish</option>
+                     <option>French</option>
+                     <option>German</option>
+                     <option>Chinese</option>
+                     <option>Japanese</option>
+                   </select>
+
+                   {isConnected && <Visualizer volume={volume} isActive={isConnected} />}
                 </div>
               </div>
-
-              <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
-                {(!isConnected && transcripts.length === 0) ? (
-                   <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 opacity-60">
-                      <p className="text-sm font-medium">Tap the microphone to start class</p>
-                      {targetLanguage !== 'English' && <p className="text-xs mt-1 text-blue-500 dark:text-blue-400">Translation: {targetLanguage}</p>}
-                      <p className="text-[10px] mt-4 text-slate-300 dark:text-slate-600">Tip: Say "Start Recording" or "Stop Recording"</p>
-                   </div>
+              
+              <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+                {transcripts.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 opacity-50">
+                    <MicIcon className="w-16 h-16 mb-4" />
+                    <p>Tap the microphone to start</p>
+                  </div>
                 ) : (
                   transcripts.map((msg) => (
-                    <div key={msg.id} className={`flex ${msg.role === 'model' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                      <div className={`max-w-[85%] rounded-2xl p-3.5 leading-relaxed ${settings.textSize} shadow-sm ${
-                        msg.role === 'model' 
-                          ? 'bg-slate-100 dark:bg-[#1e293b] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700' 
-                          : 'bg-white dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-transparent'
-                      }`}>
-                         {renderFormattedContent(msg.text, msg.role, msg.id, 'transcript')}
-                      </div>
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                       <div className={`max-w-[85%] p-4 rounded-2xl ${
+                         msg.role === 'user' 
+                           ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-br-sm' 
+                           : 'bg-blue-50 dark:bg-blue-900/20 text-slate-800 dark:text-slate-100 rounded-bl-sm border border-blue-100 dark:border-blue-800/30'
+                       } shadow-sm`}>
+                          {renderFormattedContent(msg.text, msg.role, msg.id, 'transcript')}
+                       </div>
                     </div>
                   ))
                 )}
               </div>
-            </div>
 
-            <div className="shrink-0 flex flex-col items-center justify-center py-2 relative z-20">
-              <div className="flex flex-col items-center gap-3">
-                 <div className="relative group">
-                    {isConnected && (
-                      <>
-                        <div className="absolute inset-0 bg-blue-500 rounded-full animate-ripple opacity-30"></div>
-                        <div className="absolute inset-0 bg-blue-400 rounded-full animate-ripple delay-150 opacity-20"></div>
-                      </>
-                    )}
-                    <button
-                      onClick={isConnected ? handleDisconnect : handleConnect}
-                      className={`relative w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform active:scale-95 border-4 border-slate-50 dark:border-[#0b1121] ${
-                        isConnected 
-                        ? 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-red-500/30' 
-                        : 'bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-blue-500/40'
-                      }`}
-                    >
-                      {isConnected ? (
-                        <div className="w-8 h-8 bg-white rounded-md" />
-                      ) : (
-                         <MicIcon className="w-8 h-8 text-white" />
-                      )}
-                    </button>
-                 </div>
-                 <p className="text-slate-500 dark:text-slate-400 text-xs font-medium tracking-wide">
-                   {isConnected ? 'Recording in progress...' : 'Tap to start recording'}
-                 </p>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* --- AI CHAT TAB --- */}
-        {activeTab === 'aichat' && (
-          <div className="flex-1 flex flex-col h-full mt-4 bg-white/80 dark:bg-[#161e32]/80 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700/50 shadow-xl dark:shadow-2xl overflow-hidden relative mb-2 transition-colors duration-300">
-            
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-[#1e293b]/50 flex justify-between items-center shrink-0">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-800 dark:text-blue-100">AI Assistant</h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Ask questions, upload diagrams, or chat</p>
+              {/* Error Banner */}
+              {error && (
+                <div className="absolute bottom-4 left-4 right-4 bg-red-500/90 text-white p-3 rounded-xl flex items-center gap-3 text-sm backdrop-blur-sm animate-fade-in">
+                  <AlertIcon />
+                  {error}
                 </div>
-                {chatMessages.length > 0 && (
-                  <div className="flex gap-2">
-                    <button onClick={handleSaveChat} className="text-xs bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-600/30 transition-colors border border-blue-200 dark:border-blue-500/20">
-                      Save to History
-                    </button>
-                  </div>
-                )}
+              )}
             </div>
 
-            <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4 pb-20">
-                {chatMessages.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 opacity-60">
-                      <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-3">
-                         <ChatIcon active={true} />
-                      </div>
-                      <p className="text-sm font-medium">Hello! How can I help you today?</p>
-                      <p className="text-xs mt-1">Ask me to solve a quiz or explain notes!</p>
-                  </div>
-                )}
-                
-                {chatMessages.map((msg) => (
-                  <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                     <div className={`max-w-[85%] rounded-2xl p-3.5 leading-relaxed shadow-sm ${settings.textSize} ${
-                        msg.role === 'user'
-                        ? 'bg-blue-600 text-white rounded-br-sm'
-                        : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200 dark:border-transparent'
-                     }`}>
-                        {renderFormattedContent(msg.text, msg.role, msg.id, 'chat')}
-                     </div>
-                  </div>
-                ))}
-                
-                {isChatLoading && (
-                   <div className="flex justify-start animate-fade-in">
-                      <div className="bg-white dark:bg-slate-700 rounded-2xl rounded-bl-sm p-3.5 flex gap-1 items-center border border-slate-200 dark:border-transparent shadow-sm">
-                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                         <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
-                      </div>
-                   </div>
-                )}
-            </div>
-
-            {/* Chat Input Area */}
-            <div className="absolute bottom-0 left-0 right-0 p-4 bg-slate-50 dark:bg-[#161e32] border-t border-slate-200 dark:border-slate-800 shrink-0">
-               
-               {/* Attachment Preview */}
-               {chatAttachment && (
-                  <div className="mb-2 flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700 w-fit shadow-sm">
-                     {chatAttachment.mimeType.startsWith('image/') ? (
-                        <img src={`data:${chatAttachment.mimeType};base64,${chatAttachment.data}`} className="w-10 h-10 object-cover rounded" alt="preview" />
-                     ) : (
-                        <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 flex items-center justify-center rounded text-xs text-slate-500">PDF</div>
-                     )}
-                     <div className="flex flex-col">
-                        <span className="text-xs text-slate-700 dark:text-slate-200 truncate max-w-[150px]">{chatAttachment.name}</span>
-                        <span className="text-[10px] text-slate-400">Ready to send</span>
-                     </div>
-                     <button onClick={() => setChatAttachment(null)} className="p-1 hover:text-red-400 ml-2 text-slate-400"><CloseIcon /></button>
-                  </div>
+            {/* Mic Control */}
+            <div className="h-32 flex items-center justify-center relative">
+               {isConnected && (
+                 <div className="absolute w-24 h-24 bg-blue-500/20 rounded-full animate-ripple"></div>
                )}
-
-               <div className="flex items-center gap-2 bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-full px-2 py-1 focus-within:border-blue-500/50 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all shadow-sm">
-                  
-                  {/* Upload Button */}
-                  <input 
-                     type="file" 
-                     ref={fileInputRef} 
-                     onChange={handleFileSelect} 
-                     accept="image/*,application/pdf" 
-                     className="hidden" 
-                  />
-                  <button 
-                     onClick={() => fileInputRef.current?.click()} 
-                     className="p-2 text-slate-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-full transition-colors"
-                  >
-                     <PaperclipIcon />
-                  </button>
-
-                  {/* Mic Button */}
-                  <button
-                    onClick={startDictation}
-                    className={`p-2 rounded-full transition-colors ${isDictating ? 'text-red-500 animate-pulse' : 'text-slate-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700/50'}`}
-                  >
-                     <MicIcon className="w-5 h-5" />
-                  </button>
-
-                  <input 
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && !isChatLoading && handleSendMessage()}
-                    placeholder={isDictating ? "Listening..." : "Message AI..."}
-                    className="flex-1 bg-transparent border-none outline-none text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 h-10"
-                    disabled={isChatLoading}
-                  />
-                  <button 
-                    onClick={handleSendMessage}
-                    disabled={(!chatInput.trim() && !chatAttachment) || isChatLoading}
-                    className="p-2 m-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-full transition-colors shadow-md"
-                  >
-                     <SendIcon />
-                  </button>
-               </div>
+               <button 
+                 onClick={isConnected ? handleDisconnect : handleConnect}
+                 className={`relative z-10 w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 ${
+                   isConnected 
+                   ? 'bg-red-500 hover:bg-red-600 text-white rotate-0' 
+                   : 'bg-gradient-to-br from-blue-500 to-cyan-500 text-white hover:shadow-blue-500/50'
+                 }`}
+               >
+                 {isConnected ? (
+                   <div className="w-8 h-8 bg-white rounded-md"></div>
+                 ) : (
+                   <MicIcon className="w-10 h-10" />
+                 )}
+               </button>
+               <p className="absolute bottom-4 text-xs font-medium text-slate-400 dark:text-slate-500">
+                 {isConnected ? 'Tap to stop' : 'Tap to start recording'}
+               </p>
             </div>
           </div>
         )}
 
-        {/* --- HISTORY TAB --- */}
+        {/* HISTORY TAB */}
         {activeTab === 'history' && (
-           <div className="flex-1 mt-4 bg-white/80 dark:bg-[#161e32]/80 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700/50 shadow-xl dark:shadow-2xl overflow-hidden flex flex-col mb-2 transition-colors duration-300">
+           <div className="h-full flex flex-col p-4 bg-slate-50 dark:bg-[#0b1121]">
               {!showHistoryDetail ? (
                 <>
-                  <div className="p-6 border-b border-slate-100 dark:border-slate-800/50 shrink-0">
-                    <h2 className="text-xl font-bold text-slate-800 dark:text-white">History</h2>
-                    <div className="flex gap-2 mt-4">
-                       {['All', 'Voice', 'Chat', 'Upload'].map(filter => (
-                          <button key={filter} className="text-xs font-medium px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-colors">
-                             {filter}
-                          </button>
-                       ))}
-                    </div>
-                  </div>
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
-                     {history.length === 0 ? (
-                        <div className="text-center text-slate-400 dark:text-slate-500 mt-20">
-                           <HistoryIcon active={false} />
-                           <p className="mt-2 text-sm">No history yet.</p>
+                  <h2 className="text-2xl font-bold mb-6 px-2 text-slate-900 dark:text-white">History</h2>
+                  <div className="flex-1 overflow-y-auto space-y-3 pb-20 custom-scrollbar px-2">
+                    {history.length === 0 ? (
+                       <div className="text-center text-slate-400 mt-20">No history yet.</div>
+                    ) : (
+                      history.map((item) => (
+                        <div 
+                          key={item.id} 
+                          onClick={() => setShowHistoryDetail(item)}
+                          className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all cursor-pointer group"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                             <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg ${
+                                  item.type === 'voice' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' : 
+                                  item.type === 'chat' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' :
+                                  'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                                }`}>
+                                   {item.type === 'voice' ? <MicIcon className="w-5 h-5"/> : item.type === 'chat' ? <ChatIcon active={true}/> : <UploadIcon active={true}/>}
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-slate-800 dark:text-slate-100 line-clamp-1">{item.title}</h3>
+                                  <p className="text-xs text-slate-500">{new Date(item.date).toLocaleString()}</p>
+                                </div>
+                             </div>
+                             <ChevronRight />
+                          </div>
+                          <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 pl-14">
+                            {item.preview}
+                          </p>
                         </div>
-                     ) : (
-                        history.map(item => (
-                           <div 
-                             key={item.id} 
-                             onClick={() => {
-                                 setShowHistoryDetail(item);
-                                 setContextMessages([]); // Reset context chat
-                                 contextSessionRef.current = null;
-                             }}
-                             className="group bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 rounded-xl p-4 transition-all cursor-pointer hover:border-blue-400/50 hover:shadow-md"
-                           >
-                              <div className="flex justify-between items-start mb-2">
-                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${
-                                       item.type === 'voice' ? 'bg-red-100 dark:bg-red-500/10 text-red-500 dark:text-red-400' :
-                                       item.type === 'chat' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400' :
-                                       'bg-purple-100 dark:bg-purple-500/10 text-purple-500 dark:text-purple-400'
-                                    }`}>
-                                       {item.type === 'voice' ? <MicIcon className="w-4 h-4"/> : 
-                                        item.type === 'chat' ? <ChatIcon active={true} /> : 
-                                        <UploadIcon active={true}/>}
-                                    </div>
-                                    <div>
-                                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors">{item.title}</h3>
-                                       <p className="text-[10px] text-slate-500">{new Date(item.date).toLocaleString()}</p>
-                                    </div>
-                                 </div>
-                                 <ChevronRight />
-                              </div>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 pl-11">
-                                 {item.preview}
-                              </p>
-                           </div>
-                        ))
-                     )}
+                      ))
+                    )}
                   </div>
                 </>
               ) : (
-                <div className="flex flex-col h-full">
-                   {/* Detail Header */}
-                   <div className="p-4 border-b border-slate-100 dark:border-slate-800/50 flex items-center gap-3 shrink-0">
-                      <button onClick={() => setShowHistoryDetail(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
-                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-                      </button>
-                      <div className="flex-1">
-                         <h2 className="text-sm font-bold text-slate-800 dark:text-white truncate max-w-[200px]">{showHistoryDetail.title}</h2>
-                         <p className="text-[10px] text-slate-500">{new Date(showHistoryDetail.date).toLocaleString()}</p>
-                      </div>
-                      <button 
-                        onClick={() => {
-                           setHistory(prev => prev.filter(h => h.id !== showHistoryDetail.id));
-                           setShowHistoryDetail(null);
-                        }}
-                        className="p-2 text-slate-500 hover:text-red-500 dark:hover:text-red-400"
-                      >
-                         <TrashIcon />
-                      </button>
-                   </div>
-                   
-                   {/* Detail Content */}
-                   <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50 dark:bg-slate-900/20">
-                      <div className="p-6">
-                        {/* Show Image or Icon if available */}
-                        {/* @ts-ignore */}
-                        {showHistoryDetail.image && (
-                            <div className="mb-6 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700/50 shadow-lg flex justify-center bg-white dark:bg-slate-900/50 p-4">
-                                {/* @ts-ignore */}
-                                {(showHistoryDetail.mimeType && showHistoryDetail.mimeType.startsWith('image/')) ? (
-                                    /* @ts-ignore */
-                                    <img src={showHistoryDetail.image.startsWith('data:') ? showHistoryDetail.image : `data:${showHistoryDetail.mimeType};base64,${showHistoryDetail.image}`} alt="History attachment" className="w-full object-contain max-h-[300px]" />
-                                /* @ts-ignore */
-                                ) : (showHistoryDetail.mimeType === 'application/pdf') ? (
-                                    <div className="flex flex-col items-center p-8"><PdfIcon className="w-24 h-24 text-red-500 opacity-80"/><span className="mt-2 text-sm text-slate-400">PDF Document</span></div>
-                                ) : (
-                                    <div className="flex flex-col items-center p-8"><AudioFileIcon className="w-24 h-24 text-purple-500 opacity-80"/><span className="mt-2 text-sm text-slate-400">Audio Recording</span></div>
-                                )}
-                            </div>
-                        )}
-                        
-                        <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap font-mono bg-white dark:bg-slate-800/20 p-4 rounded-lg border border-slate-200 dark:border-slate-700/30 shadow-sm">
-                           {typeof showHistoryDetail.content === 'string' 
-                              ? showHistoryDetail.content 
-                              : Array.isArray(showHistoryDetail.content) 
-                                 ? showHistoryDetail.content.map((c: any) => c.text).join('\n\n')
-                                 : JSON.stringify(showHistoryDetail.content)}
+                <div className="h-full flex flex-col">
+                  <div className="flex items-center gap-2 mb-4">
+                     <button onClick={() => setShowHistoryDetail(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full">
+                       <ChevronRight /> {/* Rotated by css ideally, but simpler to just use generic back icon or text */}
+                       <span className="sr-only">Back</span>
+                     </button>
+                     <h2 className="font-bold text-lg text-slate-900 dark:text-white">Detail View</h2>
+                  </div>
+                  <div className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl p-5 shadow-inner overflow-y-auto custom-scrollbar">
+                     {showHistoryDetail.image && (
+                        <div className="mb-6 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                          {showHistoryDetail.mimeType?.startsWith('image/') ? (
+                             <img src={showHistoryDetail.image} alt="Upload" className="w-full h-auto object-cover" />
+                          ) : (
+                             <div className="p-8 flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900">
+                               {showHistoryDetail.mimeType === 'application/pdf' ? <PdfIcon /> : <AudioFileIcon />}
+                               <span className="text-sm text-slate-500 mt-2">File Attachment</span>
+                             </div>
+                          )}
                         </div>
-                        
-                        {/* Embedded Context Chat */}
-                        <EmbeddedChat 
-                            contextText={
-                                typeof showHistoryDetail.content === 'string' 
-                                    ? showHistoryDetail.content 
-                                    : Array.isArray(showHistoryDetail.content) 
-                                        ? showHistoryDetail.content.map((c: any) => c.text).join('\n')
-                                        : JSON.stringify(showHistoryDetail.content)
-                            } 
-                            // @ts-ignore
-                            contextImage={showHistoryDetail.image}
-                            // @ts-ignore
-                            mimeType={showHistoryDetail.mimeType}
-                        />
-                      </div>
-                   </div>
+                     )}
+
+                     <div className={`prose dark:prose-invert max-w-none ${settings.textSize}`}>
+                       {Array.isArray(showHistoryDetail.content) ? (
+                         showHistoryDetail.content.map((msg: any) => (
+                           <div key={msg.id} className="mb-4">
+                             <span className={`text-xs font-bold uppercase ${msg.role === 'user' ? 'text-blue-500' : 'text-purple-500'}`}>
+                               {msg.role}
+                             </span>
+                             <div className="mt-1">{msg.text}</div>
+                           </div>
+                         ))
+                       ) : (
+                         <div className="whitespace-pre-wrap">{showHistoryDetail.content}</div>
+                       )}
+                     </div>
+
+                     {/* Embedded Chat for History */}
+                     <EmbeddedChat 
+                        contextText={
+                           Array.isArray(showHistoryDetail.content) 
+                           ? showHistoryDetail.content.map((m:any) => m.text).join('\n') 
+                           : showHistoryDetail.content
+                        }
+                        contextImage={showHistoryDetail.image}
+                        mimeType={showHistoryDetail.mimeType}
+                     />
+                  </div>
                 </div>
               )}
            </div>
         )}
 
-        {/* --- UPLOAD TAB --- */}
-        {activeTab === 'upload' && (
-           <div className="flex-1 mt-4 bg-white/80 dark:bg-[#161e32]/80 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700/50 shadow-xl dark:shadow-2xl overflow-hidden flex flex-col mb-2 transition-colors duration-300">
-              
-              {uploadStatus === 'idle' || uploadStatus === 'uploading' || uploadStatus === 'analyzing' || uploadStatus === 'error' ? (
-                  <div className="flex-1 p-6 flex flex-col">
-                      <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2 shrink-0">Upload & Analyze</h2>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 shrink-0">Upload lecture slides, PDFs, Audio notes, or quizzes.</p>
-                      
-                      <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl bg-slate-50 dark:bg-slate-800/20 hover:bg-slate-100 dark:hover:bg-slate-800/40 transition-colors relative group">
-                        <input 
-                          type="file" 
-                          accept=".jpg,.jpeg,.png,.webp,application/pdf,audio/*,text/plain"
-                          onChange={handleFileUpload}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                          disabled={uploadStatus === 'uploading' || uploadStatus === 'analyzing'}
-                        />
-                        
-                        {uploadStatus === 'idle' && (
-                            <>
-                              <div className="p-4 bg-blue-100 dark:bg-blue-600/10 rounded-full mb-4 group-hover:scale-110 transition-transform duration-300">
-                                  <FileIcon />
-                              </div>
-                              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Tap to upload file</p>
-                              <p className="text-xs text-slate-500 mt-1">PDF, Audio, Images, Text</p>
-                            </>
-                        )}
+        {/* AI CHAT TAB */}
+        {activeTab === 'aichat' && (
+          <div className="h-full flex flex-col p-4 bg-slate-50 dark:bg-[#0b1121]">
+             <div className="flex justify-between items-center mb-4 px-2">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                   AI Chat <span className="text-xs font-normal px-2 py-1 bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 rounded-full">Gemini 2.5</span>
+                </h2>
+                <div className="flex gap-2">
+                   <button onClick={handleSaveChat} className="p-2 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400" title="Save Chat">
+                      <SaveIcon />
+                   </button>
+                   <button onClick={() => setChatMessages([])} className="p-2 text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400" title="Clear Chat">
+                      <TrashIcon />
+                   </button>
+                </div>
+             </div>
 
-                        {uploadStatus === 'uploading' && <p className="text-sm text-blue-500 dark:text-blue-400 animate-pulse">Uploading...</p>}
-                        {uploadStatus === 'analyzing' && <p className="text-sm text-purple-500 dark:text-purple-400 animate-pulse">AI Checking for Quiz & Summarizing...</p>}
-                        {uploadStatus === 'error' && <p className="text-sm text-red-500 dark:text-red-400">Upload Failed. Try again.</p>}
-                      </div>
+             <div ref={chatScrollRef} className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl p-4 shadow-sm border border-slate-200 dark:border-slate-800 overflow-y-auto space-y-4 custom-scrollbar mb-4 relative">
+                {chatMessages.length === 0 ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 opacity-60 pointer-events-none">
+                     <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-4">
+                        <ChatIcon active={true}/>
+                     </div>
+                     <p>Ask anything about your notes!</p>
                   </div>
-              ) : (
-                  // Full Page Result View
-                  <div className="flex flex-col h-full">
-                      <div className="p-4 border-b border-slate-100 dark:border-slate-800/50 flex items-center justify-between bg-slate-50/50 dark:bg-[#1e293b]/50 shrink-0">
-                          <h2 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                             <span className="w-2 h-2 rounded-full bg-green-400"></span> Analysis Result
-                          </h2>
-                          <button 
-                             onClick={() => {
-                                 setUploadStatus('idle');
-                                 setUploadResult(null);
-                                 setUploadImagePreview(null);
-                                 setUploadFileType(null);
-                             }} 
-                             className="text-xs bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                             Upload New
-                          </button>
-                      </div>
-
-                      <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50 dark:bg-slate-900/20">
-                         <div className="p-6">
-                            {/* Uploaded Content Preview */}
-                            {uploadImagePreview && (
-                                <div className="mb-6 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700/50 shadow-lg flex justify-center bg-white dark:bg-slate-900/50 p-4">
-                                    {uploadFileType?.startsWith('image/') ? (
-                                        <img src={uploadImagePreview} alt="Uploaded content" className="w-full object-contain max-h-[300px]" />
-                                    ) : uploadFileType === 'application/pdf' ? (
-                                        <div className="flex flex-col items-center p-8"><PdfIcon className="w-24 h-24 text-red-500 opacity-80"/><span className="mt-2 text-sm text-slate-400">PDF Document</span></div>
-                                    ) : uploadFileType?.startsWith('audio/') ? (
-                                        <div className="flex flex-col items-center p-8"><AudioFileIcon className="w-24 h-24 text-purple-500 opacity-80"/><span className="mt-2 text-sm text-slate-400">Audio Recording</span></div>
-                                    ) : null}
-                                </div>
-                            )}
-
-                            {/* Analysis Text */}
-                            <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap font-mono bg-white dark:bg-slate-800/20 p-4 rounded-lg border border-slate-200 dark:border-slate-700/30 shadow-sm">
-                                {uploadResult}
-                            </div>
-                         </div>
-                      </div>
+                ) : (
+                  chatMessages.map((msg) => (
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                       <div className={`max-w-[85%] p-3 rounded-2xl ${settings.textSize} ${
+                         msg.role === 'user' 
+                           ? 'bg-blue-600 text-white rounded-br-sm shadow-md shadow-blue-500/20' 
+                           : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm border border-slate-200 dark:border-slate-600 shadow-sm'
+                       }`}>
+                          {renderFormattedContent(msg.text, msg.role, msg.id, 'chat')}
+                       </div>
+                    </div>
+                  ))
+                )}
+                {isChatLoading && (
+                  <div className="flex justify-start animate-fade-in">
+                     <div className="bg-white dark:bg-slate-700 p-4 rounded-2xl rounded-bl-sm border border-slate-200 dark:border-slate-600 shadow-sm">
+                        <div className="flex space-x-1.5">
+                           <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
+                           <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                           <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+                        </div>
+                     </div>
                   </div>
-              )}
-           </div>
+                )}
+             </div>
+
+             {/* Chat Input Bar */}
+             <div className="flex gap-2 items-end bg-white dark:bg-[#161e32] p-2 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-800">
+                <input 
+                  type="file" 
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept="image/*,application/pdf"
+                  onChange={handleFileSelect}
+                />
+                
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`p-3 rounded-xl transition-colors ${
+                     chatAttachment ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500'
+                  }`}
+                  title="Attach Image/PDF"
+                >
+                  <PaperclipIcon />
+                </button>
+
+                <div className="flex-1 flex flex-col gap-2">
+                   {chatAttachment && (
+                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg text-xs">
+                         <span className="font-semibold text-blue-600 dark:text-blue-400 truncate max-w-[150px]">{chatAttachment.name}</span>
+                         <button onClick={() => setChatAttachment(null)} className="text-slate-500 hover:text-red-500"><CloseIcon /></button>
+                      </div>
+                   )}
+                   <textarea
+                     value={chatInput}
+                     onChange={(e) => setChatInput(e.target.value)}
+                     onKeyDown={(e) => {
+                       if (e.key === 'Enter' && !e.shiftKey) {
+                         e.preventDefault();
+                         handleSendMessage();
+                       }
+                     }}
+                     placeholder={isDictating ? "Listening..." : "Type or speak..."}
+                     className={`w-full bg-transparent outline-none text-slate-800 dark:text-white max-h-32 resize-none py-2 px-2 text-sm ${isDictating ? 'placeholder-red-400 animate-pulse' : ''}`}
+                     rows={1}
+                   />
+                </div>
+
+                <button 
+                   onClick={startDictation}
+                   className={`p-3 rounded-xl transition-colors ${
+                     isDictating ? 'bg-red-500 text-white animate-pulse' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500'
+                   }`}
+                >
+                   <MicIcon className="w-5 h-5"/>
+                </button>
+
+                <button 
+                  onClick={handleSendMessage}
+                  disabled={(!chatInput.trim() && !chatAttachment) || isChatLoading}
+                  className="p-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white rounded-xl shadow-md transition-all active:scale-95"
+                >
+                  <SendIcon />
+                </button>
+             </div>
+          </div>
         )}
 
-        {/* --- SETTINGS TAB --- */}
-        {activeTab === 'settings' && (
-           <div className="flex-1 mt-4 bg-white/80 dark:bg-[#161e32]/80 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700/50 shadow-xl dark:shadow-2xl overflow-hidden p-6 mb-2 transition-colors duration-300">
-              <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-6">Settings</h2>
-              
-              <div className="space-y-8">
-                 {/* Theme Toggle */}
-                 <div>
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3">Appearance</h3>
-                    <div className="flex gap-2 bg-slate-100 dark:bg-slate-900/50 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
-                       <button
-                         onClick={() => setSettings({...settings, theme: 'light'})}
-                         className={`flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-2 ${
-                            settings.theme === 'light'
-                            ? 'bg-white text-slate-900 shadow-sm'
-                            : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                         }`}
-                       >
-                          <SunIcon /> Light
-                       </button>
-                       <button
-                         onClick={() => setSettings({...settings, theme: 'dark'})}
-                         className={`flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-2 ${
-                            settings.theme === 'dark'
-                            ? 'bg-slate-700 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                         }`}
-                       >
-                          <MoonIcon /> Dark
-                       </button>
-                    </div>
-                 </div>
-
-                 {/* Voice Section */}
-                 <div>
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3">AI Voice</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                       {['Kore', 'Puck', 'Fenrir', 'Charon', 'Aoede'].map(voice => (
-                          <button
-                            key={voice}
-                            onClick={() => setSettings({...settings, voice})}
-                            className={`p-3 rounded-xl border text-sm font-medium transition-all ${
-                               settings.voice === voice 
-                               ? 'bg-blue-50 dark:bg-blue-600/20 border-blue-500 text-blue-600 dark:text-blue-300 shadow-md dark:shadow-blue-500/10' 
-                               : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                             {voice}
-                          </button>
-                       ))}
-                    </div>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">Selected voice will be used in the next live session.</p>
-                 </div>
-
-                 {/* Display Section */}
-                 <div>
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3">Text Size</h3>
-                    <div className="flex gap-2 bg-slate-100 dark:bg-slate-900/50 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
-                       {[
-                         { label: 'Small', val: 'text-xs' }, 
-                         { label: 'Normal', val: 'text-sm' }, 
-                         { label: 'Large', val: 'text-base' }
-                        ].map((opt) => (
-                         <button
-                           key={opt.val}
-                           onClick={() => setSettings({...settings, textSize: opt.val})}
-                           className={`flex-1 py-2 rounded-md text-xs font-medium transition-all ${
-                              settings.textSize === opt.val
-                              ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                              : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                           }`}
-                         >
-                            {opt.label}
-                         </button>
-                       ))}
-                    </div>
-                 </div>
+        {/* UPLOAD TAB */}
+        {activeTab === 'upload' && (
+          <div className="h-full flex flex-col p-6 bg-slate-50 dark:bg-[#0b1121]">
+            {!uploadResult ? (
+              <div className="h-full flex flex-col justify-center">
+                 <h2 className="text-3xl font-bold mb-2 text-center text-slate-900 dark:text-white">Analyze Content</h2>
+                 <p className="text-center text-slate-500 dark:text-slate-400 mb-8">Upload quizzes, notes, PDFs, or audio for instant AI analysis and answers.</p>
                  
-                 {/* Data Section */}
-                 <div>
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3">Data & Privacy</h3>
+                 <label className={`
+                    flex-1 max-h-[400px] border-3 border-dashed rounded-3xl flex flex-col items-center justify-center cursor-pointer transition-all duration-300 group
+                    ${uploadStatus === 'uploading' || uploadStatus === 'analyzing' 
+                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/10' 
+                      : 'border-slate-300 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-white dark:hover:bg-slate-800'
+                    }
+                 `}>
+                    <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*,application/pdf,audio/*,text/plain" />
                     
-                    <button 
-                      onClick={handleClearKey}
-                      className="w-full mb-3 py-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
-                    >
-                       Change API Key
-                    </button>
+                    {uploadStatus === 'idle' && (
+                       <>
+                         <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                            <UploadIcon active={true}/>
+                         </div>
+                         <span className="text-lg font-semibold text-slate-700 dark:text-slate-200">Click to Upload</span>
+                         <span className="text-sm text-slate-400 mt-2">PDF, Audio, Images, Text</span>
+                         <div className="mt-6 px-4 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-bold uppercase tracking-wide">
+                            Great for Quizzes & Notes
+                         </div>
+                       </>
+                    )}
 
+                    {(uploadStatus === 'uploading' || uploadStatus === 'analyzing') && (
+                       <div className="text-center">
+                          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4 mx-auto"></div>
+                          <p className="text-blue-600 dark:text-blue-400 font-medium animate-pulse">
+                             {uploadStatus === 'uploading' ? 'Uploading...' : 'Gemini is thinking...'}
+                          </p>
+                       </div>
+                    )}
+                 </label>
+              </div>
+            ) : (
+              <div className="h-full flex flex-col">
+                 <div className="flex justify-between items-center mb-4">
                     <button 
-                      onClick={() => {
-                        if(confirm("This will clear all settings and chat history. Continue?")) {
-                          localStorage.clear();
-                          window.location.reload();
-                        }
-                      }}
-                      className="w-full py-3 border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300 rounded-xl text-sm font-medium hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
+                      onClick={() => { setUploadResult(null); setUploadImagePreview(null); setUploadStatus('idle'); }}
+                      className="text-sm text-slate-500 hover:text-blue-600 flex items-center gap-1"
                     >
-                       <TrashIcon /> Reset App Data
+                       ← Upload Another
                     </button>
+                    <button onClick={() => {
+                        addToHistory('upload', 'Saved Upload', uploadResult, uploadResult.substring(0, 50));
+                        alert('Saved to History');
+                    }} className="text-sm bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-3 py-1 rounded-full">
+                       Save Result
+                    </button>
+                 </div>
+
+                 <div className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl overflow-hidden shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                    {/* Image/File Preview Header */}
+                    <div className="h-48 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-center relative overflow-hidden">
+                       {uploadImagePreview && (
+                          uploadFileType?.startsWith('image/') ? (
+                             <img src={uploadImagePreview} alt="Uploaded" className="w-full h-full object-contain" />
+                          ) : (
+                             <div className="text-center">
+                                {uploadFileType === 'application/pdf' ? <PdfIcon /> : <AudioFileIcon />}
+                                <p className="text-slate-500 text-xs mt-2 font-mono">
+                                   {uploadFileType === 'application/pdf' ? 'DOCUMENT' : 'AUDIO FILE'}
+                                </p>
+                             </div>
+                          )
+                       )}
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                       <h3 className="text-xl font-bold mb-4 text-slate-900 dark:text-white border-l-4 border-blue-500 pl-3">Analysis Result</h3>
+                       <div className="prose dark:prose-invert max-w-none text-slate-600 dark:text-slate-300">
+                          <div className="whitespace-pre-wrap">{uploadResult}</div>
+                       </div>
+                    </div>
+
+                    {/* Context Chat removed for Upload view per request, kept in History Detail */}
                  </div>
               </div>
-           </div>
+            )}
+          </div>
+        )}
+
+        {/* SETTINGS TAB */}
+        {activeTab === 'settings' && (
+          <div className="h-full p-6 bg-slate-50 dark:bg-[#0b1121]">
+             <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Settings</h2>
+             
+             <div className="space-y-4">
+                <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                   <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">Appearance</h3>
+                   <div className="flex items-center justify-between p-2">
+                      <span className="text-sm text-slate-600 dark:text-slate-400">Theme</span>
+                      <button 
+                        onClick={() => setSettings(s => ({...s, theme: s.theme === 'dark' ? 'light' : 'dark'}))}
+                        className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-colors ${
+                          settings.theme === 'dark' 
+                          ? 'bg-slate-700 text-white' 
+                          : 'bg-yellow-100 text-yellow-700'
+                        }`}
+                      >
+                         {settings.theme === 'dark' ? <MoonIcon /> : <SunIcon />}
+                         {settings.theme === 'dark' ? 'Dark Mode' : 'Light Mode'}
+                      </button>
+                   </div>
+                </div>
+
+                <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                   <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">AI Voice</h3>
+                   <div className="grid grid-cols-2 gap-2">
+                      {['Kore', 'Fenrir', 'Puck', 'Charon'].map(voice => (
+                        <button
+                          key={voice}
+                          onClick={() => setSettings(s => ({...s, voice}))}
+                          className={`p-3 rounded-xl border text-sm transition-all ${
+                            settings.voice === voice 
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-bold' 
+                            : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                          }`}
+                        >
+                           {voice}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+
+                <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                   <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">Text Size</h3>
+                   <div className="flex gap-2">
+                      {[
+                        { label: 'Small', val: 'text-xs' },
+                        { label: 'Normal', val: 'text-sm' },
+                        { label: 'Large', val: 'text-base' },
+                      ].map(opt => (
+                        <button
+                          key={opt.val}
+                          onClick={() => setSettings(s => ({...s, textSize: opt.val}))}
+                          className={`flex-1 p-2 rounded-xl text-sm transition-all ${
+                            settings.textSize === opt.val
+                            ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-lg' 
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                           {opt.label}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+             </div>
+          </div>
         )}
 
       </main>
 
-      {/* --- Bottom Navigation Bar --- */}
-      <nav className="h-20 bg-white/90 dark:bg-[#0f172a]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800/50 flex items-center justify-between px-6 pb-2 z-30 fixed bottom-0 left-0 right-0 transition-colors duration-300">
-        
-        <NavButton 
-          active={activeTab === 'home'} 
-          onClick={() => setActiveTab('home')} 
-          icon={<HomeIcon active={activeTab === 'home'} />} 
-          label="Home" 
-        />
-        <NavButton 
-          active={activeTab === 'history'} 
-          onClick={() => setActiveTab('history')} 
-          icon={<HistoryIcon active={activeTab === 'history'} />} 
-          label="History" 
-        />
-        
-        {/* Main AI Chat Button (Center) */}
+      {/* Bottom Navigation */}
+      <nav className="h-20 bg-white dark:bg-[#161e32] border-t border-slate-200 dark:border-slate-800 flex justify-around items-center px-2 pb-2 z-20">
         <button 
-          onClick={() => setActiveTab('aichat')}
-          className={`flex flex-col items-center justify-center -mt-6 transition-transform duration-200 active:scale-95 group`}
+          onClick={() => setActiveTab('home')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'home' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
         >
-           <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 ${
-              activeTab === 'aichat' 
-              ? 'bg-blue-600 text-white shadow-blue-500/40 ring-4 ring-blue-50 dark:ring-[#0f172a]' 
-              : 'bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 border border-slate-200 dark:border-slate-700'
-           }`}>
-               <ChatIcon active={true} />
-           </div>
-           <span className={`text-[10px] font-medium tracking-wide mt-1 transition-colors ${activeTab === 'aichat' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}>AI Chat</span>
+          <HomeIcon active={activeTab === 'home'} />
+          <span className="text-[10px] font-medium">Home</span>
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('history')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'history' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
+        >
+          <HistoryIcon active={activeTab === 'history'} />
+          <span className="text-[10px] font-medium">History</span>
         </button>
 
-        <NavButton 
-          active={activeTab === 'upload'} 
-          onClick={() => setActiveTab('upload')} 
-          icon={<UploadIcon active={activeTab === 'upload'} />} 
-          label="Upload" 
-        />
-        <NavButton 
-          active={activeTab === 'settings'} 
-          onClick={() => setActiveTab('settings')} 
-          icon={<SettingsIcon active={activeTab === 'settings'} />} 
-          label="Settings" 
-        />
+        {/* Central AI Chat Button */}
+        <button 
+           onClick={() => setActiveTab('aichat')}
+           className={`relative -top-6 w-14 h-14 rounded-full flex items-center justify-center shadow-xl shadow-blue-500/30 transition-transform hover:scale-110
+             ${activeTab === 'aichat' 
+               ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white ring-4 ring-white dark:ring-[#0b1121]' 
+               : 'bg-slate-800 dark:bg-slate-700 text-slate-200'
+             }
+           `}
+        >
+           <ChatIcon active={true} />
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('upload')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'upload' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
+        >
+          <UploadIcon active={activeTab === 'upload'} />
+          <span className="text-[10px] font-medium">Upload</span>
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('settings')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'settings' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
+        >
+          <SettingsIcon active={activeTab === 'settings'} />
+          <span className="text-[10px] font-medium">Settings</span>
+        </button>
       </nav>
-      
     </div>
   );
 };
-
-const NavButton = ({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
-  <button 
-    onClick={onClick}
-    className={`flex flex-col items-center justify-center w-12 h-full transition-colors duration-200 ${
-      active ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
-    }`}
-  >
-    <div className={`mb-1 transition-transform duration-200 ${active ? '-translate-y-1' : ''}`}>{icon}</div>
-    <span className={`text-[10px] font-medium tracking-wide transition-opacity ${active ? 'opacity-100' : 'opacity-70'}`}>{label}</span>
-  </button>
-);
 
 export default App;

@@ -26,4 +26,6 @@ export interface HistoryItem {
   date: string; // ISO string
   preview: string;
   content: any; // Flexible content based on type
+  image?: string;
+  mimeType?: string;
 }
