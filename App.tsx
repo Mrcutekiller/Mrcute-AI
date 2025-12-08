@@ -72,6 +72,31 @@ const MoonIcon = () => (
 );
 
 const App: React.FC = () => {
+  // --- Environment Check ---
+  if (!process.env.API_KEY) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-900 text-white p-4 font-sans">
+        <div className="max-w-md text-center bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700">
+          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+             <AlertIcon />
+          </div>
+          <h1 className="text-2xl font-bold mb-3">Setup Required</h1>
+          <p className="mb-6 text-slate-300">The <code>API_KEY</code> environment variable is missing.</p>
+          <div className="text-sm text-left bg-slate-900/50 p-4 rounded-lg border border-slate-700/50">
+            <p className="font-semibold text-slate-200 mb-2">How to fix on Vercel:</p>
+            <ol className="list-decimal list-inside space-y-1 text-slate-400">
+              <li>Go to your Vercel Project Dashboard.</li>
+              <li>Click <strong>Settings</strong> {'>'} <strong>Environment Variables</strong>.</li>
+              <li>Add Key: <code>API_KEY</code></li>
+              <li>Add Value: Your Gemini API Key.</li>
+              <li>Redeploy your project.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [activeTab, setActiveTab] = useState('home');
   const [targetLanguage, setTargetLanguage] = useState('English');
 
