@@ -72,30 +72,27 @@ const MoonIcon = () => (
 );
 
 const App: React.FC = () => {
-  // --- Environment Check ---
-  if (!process.env.API_KEY) {
-    return (
-      <div className="h-screen w-full flex items-center justify-center bg-slate-900 text-white p-4 font-sans">
-        <div className="max-w-md text-center bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700">
-          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-             <AlertIcon />
-          </div>
-          <h1 className="text-2xl font-bold mb-3">Setup Required</h1>
-          <p className="mb-6 text-slate-300">The <code>API_KEY</code> environment variable is missing.</p>
-          <div className="text-sm text-left bg-slate-900/50 p-4 rounded-lg border border-slate-700/50">
-            <p className="font-semibold text-slate-200 mb-2">How to fix on Vercel:</p>
-            <ol className="list-decimal list-inside space-y-1 text-slate-400">
-              <li>Go to your Vercel Project Dashboard.</li>
-              <li>Click <strong>Settings</strong> {'>'} <strong>Environment Variables</strong>.</li>
-              <li>Add Key: <code>API_KEY</code></li>
-              <li>Add Value: Your Gemini API Key.</li>
-              <li>Redeploy your project.</li>
-            </ol>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // --- API KEY Handling ---
+  const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('mrcute_api_key') || '');
+  const [inputKey, setInputKey] = useState('');
+  
+  // Use environment variable first, then user entered key
+  const effectiveApiKey = process.env.API_KEY || userApiKey;
+
+  const handleSaveKey = () => {
+    if (inputKey.trim().length > 10) {
+      localStorage.setItem('mrcute_api_key', inputKey.trim());
+      setUserApiKey(inputKey.trim());
+    } else {
+      alert("Please enter a valid API Key.");
+    }
+  };
+
+  const handleClearKey = () => {
+    localStorage.removeItem('mrcute_api_key');
+    setUserApiKey('');
+    window.location.reload();
+  };
 
   const [activeTab, setActiveTab] = useState('home');
   const [targetLanguage, setTargetLanguage] = useState('English');
@@ -216,8 +213,8 @@ const App: React.FC = () => {
 
   // --- Functions ---
   const handleConnect = useCallback(() => {
-    connect(settings.voice, targetLanguage);
-  }, [connect, settings.voice, targetLanguage]);
+    connect(effectiveApiKey, settings.voice, targetLanguage);
+  }, [connect, effectiveApiKey, settings.voice, targetLanguage]);
 
   // --- Voice Command Listener for "Start Recording" ---
   useEffect(() => {
@@ -320,7 +317,7 @@ const App: React.FC = () => {
     setIsChatLoading(true);
 
     try {
-      const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
       chatSessionRef.current = genAI.chats.create({
         model: "gemini-2.5-flash",
         config: {
@@ -362,7 +359,7 @@ const App: React.FC = () => {
     setIsContextLoading(true);
 
     try {
-        const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
         
         if (!contextSessionRef.current) {
             contextSessionRef.current = genAI.chats.create({
@@ -483,7 +480,7 @@ const App: React.FC = () => {
         
         setUploadStatus('analyzing');
 
-        const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
         let responseText = "";
         let parts: any[] = [];
         let prompt = "";
@@ -645,6 +642,45 @@ const App: React.FC = () => {
         </div>
      );
   };
+
+  // --- SHOW KEY ENTRY SCREEN IF NO KEY ---
+  if (!effectiveApiKey) {
+    return (
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-4 font-sans">
+        <div className="max-w-md w-full bg-slate-800 p-8 rounded-3xl shadow-2xl border border-slate-700/50">
+          <div className="w-16 h-16 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
+             <SettingsIcon active={true} />
+          </div>
+          <h1 className="text-2xl font-bold mb-2 text-center">Welcome to MRCUTE AI</h1>
+          <p className="mb-8 text-slate-400 text-center text-sm">To start using the app, please enter your Google Gemini API Key.</p>
+          
+          <div className="space-y-4">
+             <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Google Gemini API Key</label>
+                <input 
+                  type="password"
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-blue-500 transition-colors"
+                  placeholder="AIzaSy..."
+                />
+             </div>
+             
+             <button 
+                onClick={handleSaveKey}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20"
+             >
+                Start App
+             </button>
+             
+             <p className="text-xs text-center text-slate-500 mt-4">
+                Don't have a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Get one from Google AI Studio</a>
+             </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-[#0b1121] text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-500/30 transition-colors duration-300">
@@ -1164,6 +1200,14 @@ const App: React.FC = () => {
                  {/* Data Section */}
                  <div>
                     <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3">Data & Privacy</h3>
+                    
+                    <button 
+                      onClick={handleClearKey}
+                      className="w-full mb-3 py-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
+                    >
+                       Change API Key
+                    </button>
+
                     <button 
                       onClick={() => {
                         if(confirm("This will clear all settings and chat history. Continue?")) {

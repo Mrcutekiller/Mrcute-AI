@@ -47,11 +47,10 @@ export const useLiveSession = () => {
     setVolume(0);
   }, []);
 
-  const connect = useCallback(async (voiceName: string = 'Kore', language: string = 'English') => {
+  const connect = useCallback(async (apiKey: string, voiceName: string = 'Kore', language: string = 'English') => {
     setError(null);
     try {
-      const apiKey = process.env.API_KEY;
-      if (!apiKey) throw new Error("API Key not found in environment");
+      if (!apiKey) throw new Error("API Key is required");
 
       const ai = new GoogleGenAI({ apiKey });
       
