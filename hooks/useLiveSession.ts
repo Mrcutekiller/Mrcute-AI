@@ -28,20 +28,30 @@ export const useLiveSession = () => {
   const disconnect = useCallback(() => {
     if (sessionRef.current) {
        sessionRef.current.then((session: any) => {
-          session.close();
+          try { session.close(); } catch(e) { console.warn("Failed to close session", e); }
        });
        sessionRef.current = null;
     }
     
-    if (inputSourceRef.current) inputSourceRef.current.disconnect();
-    if (processorRef.current) processorRef.current.disconnect();
+    try {
+      if (inputSourceRef.current) inputSourceRef.current.disconnect();
+      if (processorRef.current) processorRef.current.disconnect();
+      
+      if (inputContextRef.current && inputContextRef.current.state !== 'closed') {
+        inputContextRef.current.close();
+      }
+      if (outputContextRef.current && outputContextRef.current.state !== 'closed') {
+        outputContextRef.current.close();
+      }
+    } catch (e) {
+      console.warn("Error during audio cleanup", e);
+    }
     
-    if (inputContextRef.current && inputContextRef.current.state !== 'closed') {
-      inputContextRef.current.close();
-    }
-    if (outputContextRef.current && outputContextRef.current.state !== 'closed') {
-      outputContextRef.current.close();
-    }
+    // Reset refs
+    inputSourceRef.current = null;
+    processorRef.current = null;
+    inputContextRef.current = null;
+    outputContextRef.current = null;
     
     setIsConnected(false);
     setVolume(0);
@@ -49,12 +59,36 @@ export const useLiveSession = () => {
 
   const connect = useCallback(async (apiKey: string, voiceName: string = 'Kore', language: string = 'English') => {
     setError(null);
+    let stream: MediaStream | null = null;
+
     try {
       if (!apiKey) throw new Error("API Key is required");
 
+      // 1. Check browser support
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Audio recording is not supported in this browser.");
+      }
+
+      // 2. Request Mic Permission FIRST
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+      } catch (err: any) {
+        console.error("Microphone Access Error:", err);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+           throw new Error("Microphone permission denied. Please allow access in your browser settings.");
+        }
+        throw new Error(`Could not access microphone: ${err.message}`);
+      }
+
       const ai = new GoogleGenAI({ apiKey });
       
-      // Setup Audio Contexts
+      // 3. Setup Audio Contexts AFTER permission is granted
       const InputContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const inputCtx = new InputContextClass({ sampleRate: 16000 });
       
@@ -68,17 +102,6 @@ export const useLiveSession = () => {
       inputContextRef.current = inputCtx;
       outputContextRef.current = outputCtx;
 
-      // Request Mic Permission explicitly
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err: any) {
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-           throw new Error("Microphone permission denied. Please allow access in your browser settings.");
-        }
-        throw err;
-      }
-      
       const config = {
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
@@ -104,6 +127,8 @@ export const useLiveSession = () => {
           onopen: () => {
             console.log("Connected to Gemini Live");
             setIsConnected(true);
+
+            if (!stream) return; // Should not happen
 
             const source = inputCtx.createMediaStreamSource(stream);
             const processor = inputCtx.createScriptProcessor(4096, 1, 1);
@@ -188,9 +213,6 @@ export const useLiveSession = () => {
                   );
                   
                   const gainNode = ctx.createGain();
-                  // Adjust volume/mute here if needed. 
-                  // Note: Context suspend/resume is used for main mute toggle.
-                  
                   const source = ctx.createBufferSource();
                   source.buffer = audioBuffer;
                   source.connect(gainNode);
@@ -220,19 +242,32 @@ export const useLiveSession = () => {
     } catch (error: any) {
       console.error("Connection failed", error);
       setIsConnected(false);
-      setError(error.message || "Failed to connect to microphone or API.");
+      setError(error.message || "Failed to connect.");
+      
+      // Cleanup locally if we failed during setup
+      try {
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        if (inputContextRef.current && inputContextRef.current.state !== 'closed') inputContextRef.current.close();
+        if (outputContextRef.current && outputContextRef.current.state !== 'closed') outputContextRef.current.close();
+      } catch (cleanupErr) {
+        console.warn("Error cleaning up failed connection", cleanupErr);
+      }
     }
-  }, [disconnect]); // Add disconnect dependency
+  }, [disconnect]);
 
   useEffect(() => {
     const ctx = outputContextRef.current;
     if (ctx && ctx.state !== 'closed') {
-      if (isMuted) {
-         // Check state before suspending
-         if(ctx.state === 'running') ctx.suspend();
-      } else {
-         // Check state before resuming
-         if(ctx.state === 'suspended') ctx.resume();
+      try {
+        if (isMuted) {
+           if(ctx.state === 'running') ctx.suspend();
+        } else {
+           if(ctx.state === 'suspended') ctx.resume();
+        }
+      } catch (e) {
+        console.warn("Error toggling audio state", e);
       }
     }
   }, [isMuted, isConnected]);

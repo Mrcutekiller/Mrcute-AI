@@ -70,8 +70,25 @@ const MoonIcon = () => (
 
 const App: React.FC = () => {
   // --- API KEY Handling ---
-  // Using the fallback key provided by user since environment variables are not propagating correctly
-  const apiKey = process.env.API_KEY || "AIzaSyDklwpDl9ItDNugR44gkAGI29rVplbhJ_M";
+  // Allow user to set key in localStorage to override environment
+  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('mrcute_api_key') || '');
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+
+  const effectiveApiKey = customApiKey || process.env.API_KEY || ""; 
+
+  const saveCustomApiKey = (key: string) => {
+    setCustomApiKey(key);
+    localStorage.setItem('mrcute_api_key', key);
+    setShowApiKeyModal(false);
+    // Reload to ensure everything picks it up fresh
+    window.location.reload();
+  };
+
+  const checkApiError = (err: any) => {
+    if (err && (err.message?.includes('leaked') || err.message?.includes('revoked') || err.status === 403 || err.status === 401)) {
+       setShowApiKeyModal(true);
+    }
+  };
 
   const [activeTab, setActiveTab] = useState('home');
   const [targetLanguage, setTargetLanguage] = useState('English');
@@ -191,9 +208,26 @@ const App: React.FC = () => {
   }, [chatMessages, isChatLoading, chatAttachment]);
 
   // --- Functions ---
-  const handleConnect = useCallback(() => {
-    if (apiKey) connect(apiKey, settings.voice, targetLanguage);
-  }, [connect, apiKey, settings.voice, targetLanguage]);
+  const handleConnect = useCallback(async () => {
+    if (effectiveApiKey) {
+        try {
+            await connect(effectiveApiKey, settings.voice, targetLanguage);
+        } catch(e: any) {
+            checkApiError(e);
+        }
+    } else {
+        setShowApiKeyModal(true);
+    }
+  }, [connect, effectiveApiKey, settings.voice, targetLanguage]);
+
+  // Handle global error state from hook
+  useEffect(() => {
+     if(error) {
+         if (error.includes('403') || error.includes('PermissionDenied') || error.includes('leaked')) {
+             setShowApiKeyModal(true);
+         }
+     }
+  }, [error]);
 
   // --- Voice Command Listener for "Start Recording" ---
   useEffect(() => {
@@ -277,7 +311,10 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if ((!chatInput.trim() && !chatAttachment) || !apiKey) return;
+    if ((!chatInput.trim() && !chatAttachment) || !effectiveApiKey) {
+        if (!effectiveApiKey) setShowApiKeyModal(true);
+        return;
+    }
     
     const userMsgText = chatInput.trim();
     const currentAttachment = chatAttachment;
@@ -295,7 +332,7 @@ const App: React.FC = () => {
     setIsChatLoading(true);
 
     try {
-      const genAI = new GoogleGenAI({ apiKey: apiKey });
+      const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
       
       // Construct history for generateContent
       const history = chatMessages.map(msg => ({
@@ -333,6 +370,7 @@ const App: React.FC = () => {
 
     } catch (err: any) {
       console.error("Chat Error", err);
+      checkApiError(err);
       let errorMessage = "Sorry, I encountered an error.";
       if (err.message) errorMessage += ` (${err.message})`;
       setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: errorMessage }]);
@@ -342,7 +380,7 @@ const App: React.FC = () => {
   };
 
   const handleContextSendMessage = async (contextText: string, contextImage?: string, mimeType?: string) => {
-    if (!contextInput.trim() || !apiKey) return;
+    if (!contextInput.trim() || !effectiveApiKey) return;
 
     const userText = contextInput;
     setContextInput('');
@@ -350,7 +388,7 @@ const App: React.FC = () => {
     setIsContextLoading(true);
 
     try {
-        const genAI = new GoogleGenAI({ apiKey: apiKey });
+        const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
         
         // Build history for context chat
         const history = contextMessages.map(msg => ({
@@ -358,14 +396,6 @@ const App: React.FC = () => {
             parts: [{ text: msg.text }]
         }));
 
-        const parts: any[] = [];
-        // Only add context image to the LAST message if it's the first time? 
-        // Better: Inject context in system instruction or first message logic.
-        // Simplified: Just add image to this request if it's the start, but here we just rely on text context mostly
-        
-        // For simplicity in this embedded chat, we re-send image context with the prompt if needed or rely on history if we were using a Chat session.
-        // Using generateContent for robustness:
-        
         let promptWithContext = userText;
         if (contextMessages.length === 0) {
             promptWithContext = `[CONTEXT CONTENT]:\n${contextText}\n\n[USER QUESTION]: ${userText}`;
@@ -393,6 +423,7 @@ const App: React.FC = () => {
         setContextMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: response.text || "No text." }]);
     } catch (e) {
         console.error("Context Chat Error", e);
+        checkApiError(e);
         setContextMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: "Error getting response." }]);
     } finally {
         setIsContextLoading(false);
@@ -464,7 +495,10 @@ const App: React.FC = () => {
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !apiKey) return;
+    if (!file || !effectiveApiKey) {
+        if(!effectiveApiKey) setShowApiKeyModal(true);
+        return;
+    }
 
     setUploadStatus('uploading');
     setContextMessages([]); 
@@ -487,7 +521,7 @@ const App: React.FC = () => {
         
         setUploadStatus('analyzing');
 
-        const genAI = new GoogleGenAI({ apiKey: apiKey });
+        const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
         let parts: any[] = [];
         let prompt = "";
 
@@ -523,8 +557,9 @@ const App: React.FC = () => {
 
       reader.readAsDataURL(file);
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      checkApiError(e);
       setUploadStatus('error');
     }
   };
@@ -653,6 +688,43 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#0b1121] text-slate-900 dark:text-slate-100 transition-colors duration-300">
       
+      {/* API Key Modal - Force Prompt if missing or invalid */}
+      {showApiKeyModal && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700">
+               <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-4 mx-auto">
+                  <AlertIcon />
+               </div>
+               <h2 className="text-xl font-bold text-center mb-2 dark:text-white">API Key Required</h2>
+               <p className="text-center text-slate-600 dark:text-slate-400 text-sm mb-6">
+                 Your previous API key was revoked by Google because it was leaked in public code. Please enter a <strong>new API Key</strong> below to continue.
+               </p>
+               <input 
+                 type="text" 
+                 placeholder="Enter new Gemini API Key" 
+                 className="w-full p-3 bg-slate-100 dark:bg-slate-700/50 rounded-xl border border-slate-300 dark:border-slate-600 outline-none focus:ring-2 focus:ring-blue-500 dark:text-white mb-4"
+                 onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveCustomApiKey((e.target as HTMLInputElement).value);
+                 }}
+               />
+               <button 
+                 onClick={() => {
+                    const input = document.querySelector('input[placeholder="Enter new Gemini API Key"]') as HTMLInputElement;
+                    if(input?.value) saveCustomApiKey(input.value);
+                 }}
+                 className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-colors"
+               >
+                 Update API Key
+               </button>
+               <p className="text-xs text-center mt-4 text-slate-500">
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="underline hover:text-blue-500">
+                    Get a new key here
+                  </a>
+               </p>
+            </div>
+         </div>
+      )}
+
       {/* Top Bar */}
       <header className="px-6 py-5 flex justify-between items-center bg-white/80 dark:bg-[#0b1121]/80 backdrop-blur-md sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800">
         <div>
@@ -1067,6 +1139,24 @@ const App: React.FC = () => {
              <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Settings</h2>
              
              <div className="space-y-4">
+                <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                   <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">API Key</h3>
+                   <div className="flex flex-col gap-2">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                        {customApiKey 
+                          ? `Using custom key ending in ...${customApiKey.slice(-4)}` 
+                          : 'Using default configuration'
+                        }
+                      </p>
+                      <button 
+                         onClick={() => setShowApiKeyModal(true)}
+                         className="py-2 px-4 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-sm font-medium transition-colors"
+                      >
+                         Change API Key
+                      </button>
+                   </div>
+                </div>
+
                 <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                    <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">Appearance</h3>
                    <div className="flex items-center justify-between p-2">
