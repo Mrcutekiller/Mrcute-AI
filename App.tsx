@@ -153,13 +153,13 @@ const App: React.FC = () => {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
   const [chatAttachment, setChatAttachment] = useState<{name: string, mimeType: string, data: string} | null>(null);
-  const chatSessionRef = useRef<any>(null);
+  // Ref for chat session not strictly needed if we use generateContent history, but good for context chat
+  const contextSessionRef = useRef<any>(null);
 
   // --- Context/Embedded Chat State (Temporary) ---
   const [contextMessages, setContextMessages] = useState<{id: string, role: 'user' | 'model', text: string}[]>([]);
   const [contextInput, setContextInput] = useState('');
   const [isContextLoading, setIsContextLoading] = useState(false);
-  const contextSessionRef = useRef<any>(null);
 
   // --- Edit State ---
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -296,7 +296,24 @@ const App: React.FC = () => {
 
     try {
       const genAI = new GoogleGenAI({ apiKey: apiKey });
-      chatSessionRef.current = genAI.chats.create({
+      
+      // Construct history for generateContent
+      const history = chatMessages.map(msg => ({
+        role: msg.role,
+        parts: [{ text: msg.text }]
+      }));
+
+      // Create context string from live transcripts
+      const context = transcripts.map(t => t.text).join('\n');
+      const finalPrompt = `${userMsgText}\n\n[SYSTEM INJECTION - CURRENT LECTURE NOTES CONTEXT]:\n${context || "(No lecture notes available yet)"}`;
+      
+      const newParts: any[] = [];
+      if (currentAttachment) {
+         newParts.push({ inlineData: { mimeType: currentAttachment.mimeType, data: currentAttachment.data } });
+      }
+      newParts.push({ text: finalPrompt });
+
+      const response = await genAI.models.generateContent({
         model: "gemini-2.5-flash",
         config: {
           systemInstruction: "You are an intelligent and helpful AI teaching assistant. " +
@@ -304,25 +321,21 @@ const App: React.FC = () => {
             "If the user uploads a quiz or test, solve the questions and provide brief explanations. " +
             "If there are lecture notes provided in context, refer to them. " +
             "Be conversational, concise, and helpful."
-        }
+        },
+        contents: [
+          ...history,
+          { role: 'user', parts: newParts }
+        ]
       });
 
-      const context = transcripts.map(t => t.text).join('\n');
-      const promptText = `[CURRENT LECTURE NOTES CONTEXT]:\n${context || "(No notes yet)"}\n\n[USER INPUT]: ${userMsgText}`;
-
-      const parts: any[] = [];
-      if (currentAttachment) {
-        parts.push({ inlineData: { mimeType: currentAttachment.mimeType, data: currentAttachment.data } });
-      }
-      parts.push({ text: promptText });
-
-      const result = await chatSessionRef.current.sendMessage({ message: parts });
-      const responseText = result.text;
-
+      const responseText = response.text || "No response text.";
       setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: responseText }]);
-    } catch (err) {
+
+    } catch (err: any) {
       console.error("Chat Error", err);
-      setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: "Sorry, I encountered an error processing your request." }]);
+      let errorMessage = "Sorry, I encountered an error.";
+      if (err.message) errorMessage += ` (${err.message})`;
+      setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: errorMessage }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -339,29 +352,45 @@ const App: React.FC = () => {
     try {
         const genAI = new GoogleGenAI({ apiKey: apiKey });
         
-        if (!contextSessionRef.current) {
-            contextSessionRef.current = genAI.chats.create({
-                model: "gemini-2.5-flash",
-                config: {
-                    systemInstruction: "You are a helpful assistant analyzing a specific document or history record for the user. Answer questions based on the provided content."
-                }
-            });
+        // Build history for context chat
+        const history = contextMessages.map(msg => ({
+            role: msg.role,
+            parts: [{ text: msg.text }]
+        }));
 
-            const parts: any[] = [];
-            if (contextImage) {
-                // Handle different attachment types in context chat
-                const mime = mimeType || 'image/jpeg';
-                // Remove data prefix if exists
-                const data = contextImage.includes('base64,') ? contextImage.split('base64,')[1] : contextImage;
-                parts.push({ inlineData: { mimeType: mime, data: data } });
-            }
-            parts.push({ text: `[CONTEXT CONTENT]:\n${contextText}\n\nI am ready to answer questions about this.` });
-            
-            await contextSessionRef.current.sendMessage({ message: parts });
+        const parts: any[] = [];
+        // Only add context image to the LAST message if it's the first time? 
+        // Better: Inject context in system instruction or first message logic.
+        // Simplified: Just add image to this request if it's the start, but here we just rely on text context mostly
+        
+        // For simplicity in this embedded chat, we re-send image context with the prompt if needed or rely on history if we were using a Chat session.
+        // Using generateContent for robustness:
+        
+        let promptWithContext = userText;
+        if (contextMessages.length === 0) {
+            promptWithContext = `[CONTEXT CONTENT]:\n${contextText}\n\n[USER QUESTION]: ${userText}`;
         }
 
-        const result = await contextSessionRef.current.sendMessage({ message: userText });
-        setContextMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: result.text }]);
+        const currentParts: any[] = [];
+        if (contextImage && contextMessages.length === 0) {
+             const mime = mimeType || 'image/jpeg';
+             const data = contextImage.includes('base64,') ? contextImage.split('base64,')[1] : contextImage;
+             currentParts.push({ inlineData: { mimeType: mime, data: data } });
+        }
+        currentParts.push({ text: promptWithContext });
+
+        const response = await genAI.models.generateContent({
+            model: "gemini-2.5-flash",
+            config: {
+                 systemInstruction: "You are a helpful assistant analyzing a specific document or history record for the user."
+            },
+            contents: [
+                ...history,
+                { role: 'user', parts: currentParts }
+            ]
+        });
+
+        setContextMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: response.text || "No text." }]);
     } catch (e) {
         console.error("Context Chat Error", e);
         setContextMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: "Error getting response." }]);
@@ -459,7 +488,6 @@ const App: React.FC = () => {
         setUploadStatus('analyzing');
 
         const genAI = new GoogleGenAI({ apiKey: apiKey });
-        let responseText = "";
         let parts: any[] = [];
         let prompt = "";
 
@@ -485,7 +513,7 @@ const App: React.FC = () => {
             contents: { parts }
         });
         
-        responseText = response.text || "No result generated.";
+        const responseText = response.text || "No result generated.";
         setUploadResult(responseText);
         setUploadStatus('done');
 
