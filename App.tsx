@@ -67,20 +67,28 @@ const SunIcon = () => (
 const MoonIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
 );
+const PhoneIcon = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/></svg>
+);
+const PhoneOffIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" x2="1" y1="1" y2="23"/></svg>
+);
+const SparklesIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 3v4"/><path d="M3 5h4"/><path d="M3 9h4"/></svg>
+);
+
+const AVATAR_SEEDS = ['Felix', 'Aneka', 'Zoe', 'Marc', 'Buster', 'Tigger', 'Coco', 'Jack'];
 
 const App: React.FC = () => {
   // --- API KEY Handling ---
-  // Allow user to set key in localStorage to override environment
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('mrcute_api_key') || '');
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-
-  const effectiveApiKey = customApiKey || process.env.API_KEY || ""; 
+  const effectiveApiKey = customApiKey || process.env.API_KEY || "AIzaSyDklwpDl9ItDNugR44gkAGI29rVplbhJ_M"; 
 
   const saveCustomApiKey = (key: string) => {
     setCustomApiKey(key);
     localStorage.setItem('mrcute_api_key', key);
     setShowApiKeyModal(false);
-    // Reload to ensure everything picks it up fresh
     window.location.reload();
   };
 
@@ -92,16 +100,19 @@ const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState('home');
   const [targetLanguage, setTargetLanguage] = useState('English');
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [isVoiceChatMode, setIsVoiceChatMode] = useState(false);
 
   const { 
     connect, 
     disconnect, 
     isConnected, 
+    isConnecting,
+    isAiSpeaking,
     transcripts,
     setTranscripts,
     updateTranscript,
     volume,
-    isMuted,
     error
   } = useLiveSession();
   
@@ -113,7 +124,7 @@ const App: React.FC = () => {
   // --- Settings State (Persisted) ---
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem('mrcute_settings');
-    return saved ? JSON.parse(saved) : { voice: 'Kore', textSize: 'text-sm', theme: 'dark' };
+    return saved ? JSON.parse(saved) : { theme: 'dark', userName: 'Guest', avatarSeed: 'Felix', customAvatar: null };
   });
 
   useEffect(() => {
@@ -124,6 +135,51 @@ const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
   }, [settings]);
+
+  // --- Avatar Gen State ---
+  const [avatarPrompt, setAvatarPrompt] = useState('Cool stylized cartoon character, vibrant digital art');
+  const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
+  const [generatedAvatar, setGeneratedAvatar] = useState<string | null>(null);
+
+  const handleGenerateAvatar = async () => {
+    if (!effectiveApiKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    setIsGeneratingAvatar(true);
+    setGeneratedAvatar(null);
+    try {
+      const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
+      const response = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: `Generate an avatar image: ${avatarPrompt}. Style: Vector art, flat illustration, clean lines, colorful, 1:1 aspect ratio.` }],
+        },
+      });
+      
+      let imageUrl = null;
+      if (response.candidates?.[0]?.content?.parts) {
+         for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+               imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+               break;
+            }
+         }
+      }
+
+      if (imageUrl) {
+        setGeneratedAvatar(imageUrl);
+      } else {
+        alert("Could not generate image. Try a different prompt.");
+      }
+    } catch (e: any) {
+      console.error(e);
+      checkApiError(e);
+      alert("Error generating avatar: " + e.message);
+    } finally {
+      setIsGeneratingAvatar(false);
+    }
+  };
 
   // --- History State (Persisted) ---
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -137,28 +193,27 @@ const App: React.FC = () => {
 
   // --- Auto-save Transcripts ---
   useEffect(() => {
-    // Load autosave on mount
+    // Only auto-save if NOT in voice chat mode (to prevent overwriting class notes logic with chat)
+    if (isVoiceChatMode) return;
+    
     const saved = localStorage.getItem('mrcute_transcript_autosave');
-    if (saved) {
+    if (saved && transcripts.length === 0) {
        try {
          const parsed = JSON.parse(saved);
-         // Restore Dates from strings
          const restored = parsed.map((p: any) => ({...p, timestamp: new Date(p.timestamp)}));
          setTranscripts(restored);
        } catch (e) { console.error("Failed to load transcript autosave", e); }
     }
-  }, [setTranscripts]);
+  }, []);
 
   useEffect(() => {
-    // Save every 60 seconds
-    const interval = setInterval(() => {
-      if (transcripts.length > 0) {
-        localStorage.setItem('mrcute_transcript_autosave', JSON.stringify(transcripts));
-        console.log("Transcripts auto-saved");
-      }
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [transcripts]);
+    if (!isVoiceChatMode && transcripts.length > 0) {
+        const interval = setInterval(() => {
+           localStorage.setItem('mrcute_transcript_autosave', JSON.stringify(transcripts));
+        }, 60000);
+        return () => clearInterval(interval);
+    }
+  }, [transcripts, isVoiceChatMode]);
 
   // --- Main Chat State (Persisted) ---
   const [chatMessages, setChatMessages] = useState<{id: string, role: 'user' | 'model', text: string}[]>(() => {
@@ -169,58 +224,115 @@ const App: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
-  const [chatAttachment, setChatAttachment] = useState<{name: string, mimeType: string, data: string} | null>(null);
-  // Ref for chat session not strictly needed if we use generateContent history, but good for context chat
+  const [chatAttachments, setChatAttachments] = useState<{name: string, mimeType: string, data: string}[]>([]);
+  
   const contextSessionRef = useRef<any>(null);
-
-  // --- Context/Embedded Chat State (Temporary) ---
   const [contextMessages, setContextMessages] = useState<{id: string, role: 'user' | 'model', text: string}[]>([]);
   const [contextInput, setContextInput] = useState('');
   const [isContextLoading, setIsContextLoading] = useState(false);
 
-  // --- Edit State ---
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  // Upload State
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'analyzing' | 'done' | 'error'>('idle');
   const [uploadResult, setUploadResult] = useState<string | null>(null);
   const [uploadImagePreview, setUploadImagePreview] = useState<string | null>(null);
-  const [uploadFileType, setUploadFileType] = useState<string | null>(null); // To track mime type
+  const [uploadFileType, setUploadFileType] = useState<string | null>(null);
 
-  // Save Current Chat Context
   useEffect(() => {
     localStorage.setItem('mrcute_chat_current', JSON.stringify(chatMessages));
   }, [chatMessages]);
 
-  // Auto-scroll Live Transcript
+  // Redundant safety interval for chat saving every 60s as requested
+  useEffect(() => {
+      const interval = setInterval(() => {
+          if (chatMessages.length > 0) {
+              localStorage.setItem('mrcute_chat_current', JSON.stringify(chatMessages));
+          }
+      }, 60000);
+      return () => clearInterval(interval);
+  }, [chatMessages]);
+
   useEffect(() => {
     if (scrollRef.current && !editingId) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [transcripts, editingId]);
 
-  // Auto-scroll Chat
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
-  }, [chatMessages, isChatLoading, chatAttachment]);
+  }, [chatMessages, isChatLoading, chatAttachments]);
 
-  // --- Functions ---
   const handleConnect = useCallback(async () => {
     if (effectiveApiKey) {
         try {
-            await connect(effectiveApiKey, settings.voice, targetLanguage);
+            // Note Taker Mode: NO AUDIO OUTPUT (silent)
+            await connect(effectiveApiKey, 'Kore', targetLanguage, undefined, false);
         } catch(e: any) {
             checkApiError(e);
         }
     } else {
         setShowApiKeyModal(true);
     }
-  }, [connect, effectiveApiKey, settings.voice, targetLanguage]);
+  }, [connect, effectiveApiKey, targetLanguage]);
 
-  // Handle global error state from hook
+  const handleVoiceChatStart = useCallback(async () => {
+    if (effectiveApiKey) {
+        try {
+            setIsVoiceChatMode(true);
+            // Voice Chat Mode: AUDIO OUTPUT ENABLED
+            await connect(
+                effectiveApiKey, 
+                'Kore', 
+                targetLanguage,
+                `You are "MrCute", a helpful, friendly, and intelligent AI assistant. 
+                 IMPORTANT: As soon as the connection starts, you MUST speak first. 
+                 Say exactly this phrase: "Hi, I'm MrCute. How can I help you?". 
+                 Then wait for the user to respond. 
+                 Engage in a natural, two-way verbal conversation in ${targetLanguage}. Keep responses concise.`,
+                true 
+            );
+        } catch(e: any) {
+            checkApiError(e);
+            setIsVoiceChatMode(false);
+        }
+    } else {
+        setShowApiKeyModal(true);
+    }
+  }, [connect, effectiveApiKey, targetLanguage]);
+
+  const handleVoiceChatEnd = useCallback(async () => {
+      // 1. Disconnect current session
+      // Wait for disconnect to ensure all transcripts (incl. flushed partials) are in state
+      await disconnect();
+      
+      // The useEffect below will detect the mode change and sync transcripts to chat history
+      setIsVoiceChatMode(false);
+  }, [disconnect]);
+
+  // Sync transcripts to chat when voice mode ends
+  useEffect(() => {
+      if (!isVoiceChatMode && transcripts.length > 0) {
+          // We just ended voice chat. Append transcripts to chat history.
+          // Check for duplicates to be safe, though disconnect flushes unique IDs
+          const newMessages = transcripts.map(t => ({
+              id: t.id,
+              role: t.role,
+              text: t.text
+          }));
+          
+          setChatMessages(prev => {
+              // Simple de-dupe based on ID just in case
+              const existingIds = new Set(prev.map(m => m.id));
+              const uniqueNew = newMessages.filter(m => !existingIds.has(m.id));
+              return [...prev, ...uniqueNew];
+          });
+          setTranscripts([]); // Clear transcripts after syncing
+      }
+  }, [isVoiceChatMode, transcripts]); 
+
   useEffect(() => {
      if(error) {
          if (error.includes('403') || error.includes('PermissionDenied') || error.includes('leaked')) {
@@ -228,48 +340,6 @@ const App: React.FC = () => {
          }
      }
   }, [error]);
-
-  // --- Voice Command Listener for "Start Recording" ---
-  useEffect(() => {
-    if (isConnected) return; // Only listen if NOT connected
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    
-    // Simple command detection
-    recognition.onresult = (event: any) => {
-       const lastResult = event.results[event.results.length - 1];
-       if (lastResult.isFinal) {
-         const transcript = lastResult[0].transcript.toLowerCase();
-         if (transcript.includes('start recording') || transcript.includes('start session')) {
-            console.log("Voice command detected: Start Recording");
-            handleConnect();
-            recognition.stop();
-         }
-       }
-    };
-
-    // Auto-restart if it stops while still disconnected
-    recognition.onend = () => {
-      if (!isConnected && activeTab === 'home') {
-        try { recognition.start(); } catch(e) {}
-      }
-    };
-    
-    try {
-        recognition.start();
-    } catch(e) { /* Already started */ }
-
-    return () => {
-        recognition.onend = null; // Remove restart handler
-        recognition.stop();
-    };
-  }, [isConnected, activeTab, handleConnect]);
 
   const addToHistory = (type: HistoryType, title: string, content: any, preview: string, imageData?: string, mimeType?: string) => {
     const newItem: HistoryItem = {
@@ -291,11 +361,19 @@ const App: React.FC = () => {
     }
   };
 
+  const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); 
+    if (window.confirm("Are you sure you want to delete this item?")) {
+      setHistory(prev => prev.filter(item => item.id !== id));
+      if (showHistoryDetail?.id === id) setShowHistoryDetail(null);
+    }
+  };
+
   const handleDisconnect = () => {
+    // Standard Home tab disconnect
     if (transcripts.length > 0) {
       const preview = transcripts.map(t => t.text).join(' ').substring(0, 100) + '...';
       addToHistory('voice', `Voice Session (${targetLanguage}) ${new Date().toLocaleTimeString()}`, transcripts, preview);
-      // Clear autosave after explicit disconnect/save
       localStorage.removeItem('mrcute_transcript_autosave');
     }
     disconnect();
@@ -304,29 +382,31 @@ const App: React.FC = () => {
   const handleSaveChat = () => {
     if (chatMessages.length === 0) return;
     const preview = chatMessages[chatMessages.length - 1].text.substring(0, 80) + '...';
-    addToHistory('chat', `AI Chat ${new Date().toLocaleTimeString()}`, chatMessages, preview);
+    addToHistory('chat', `AI Chat (${targetLanguage}) ${new Date().toLocaleTimeString()}`, chatMessages, preview);
     setChatMessages([]);
     localStorage.removeItem('mrcute_chat_current');
     alert("Chat saved to History!");
   };
 
   const handleSendMessage = async () => {
-    if ((!chatInput.trim() && !chatAttachment) || !effectiveApiKey) {
+    if ((!chatInput.trim() && chatAttachments.length === 0) || !effectiveApiKey) {
         if (!effectiveApiKey) setShowApiKeyModal(true);
         return;
     }
     
     const userMsgText = chatInput.trim();
-    const currentAttachment = chatAttachment;
+    const currentAttachments = [...chatAttachments];
     
     setChatInput('');
-    setChatAttachment(null);
+    setChatAttachments([]);
+    
     const newMessageId = crypto.randomUUID();
+    const attachmentText = currentAttachments.length > 0 ? ` [${currentAttachments.length} Attachment(s)]` : '';
     
     setChatMessages(prev => [...prev, { 
       id: newMessageId, 
       role: 'user', 
-      text: userMsgText + (currentAttachment ? ` [Attachment: ${currentAttachment.name}]` : '') 
+      text: userMsgText + attachmentText
     }]);
     
     setIsChatLoading(true);
@@ -334,30 +414,31 @@ const App: React.FC = () => {
     try {
       const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
       
-      // Construct history for generateContent
       const history = chatMessages.map(msg => ({
         role: msg.role,
         parts: [{ text: msg.text }]
       }));
 
-      // Create context string from live transcripts
-      const context = transcripts.map(t => t.text).join('\n');
+      // Only include context if we are NOT in voice chat mode mixed history
+      const context = activeTab === 'aichat' && !isVoiceChatMode ? transcripts.map(t => t.text).join('\n') : "";
       const finalPrompt = `${userMsgText}\n\n[SYSTEM INJECTION - CURRENT LECTURE NOTES CONTEXT]:\n${context || "(No lecture notes available yet)"}`;
       
       const newParts: any[] = [];
-      if (currentAttachment) {
-         newParts.push({ inlineData: { mimeType: currentAttachment.mimeType, data: currentAttachment.data } });
-      }
+      // Handle multiple attachments
+      currentAttachments.forEach(att => {
+         newParts.push({ inlineData: { mimeType: att.mimeType, data: att.data } });
+      });
       newParts.push({ text: finalPrompt });
 
       const response = await genAI.models.generateContent({
         model: "gemini-2.5-flash",
         config: {
-          systemInstruction: "You are an intelligent and helpful AI teaching assistant. " +
-            "Your goal is to answer questions, explain concepts, and analyze uploaded materials (like diagrams, slides, or quizzes). " +
-            "If the user uploads a quiz or test, solve the questions and provide brief explanations. " +
-            "If there are lecture notes provided in context, refer to them. " +
-            "Be conversational, concise, and helpful."
+          systemInstruction: `You are "MrCute", an intelligent and helpful AI teaching assistant. 
+            Your goal is to answer questions, explain concepts, and analyze uploaded materials. 
+            If the user uploads a quiz or test, solve the questions and provide brief explanations. 
+            If there are lecture notes provided in context, refer to them. 
+            ALWAYS RESPOND IN ${targetLanguage}, regardless of the user's input language. Translate if necessary.
+            Be conversational, concise, and friendly.`
         },
         contents: [
           ...history,
@@ -390,7 +471,6 @@ const App: React.FC = () => {
     try {
         const genAI = new GoogleGenAI({ apiKey: effectiveApiKey });
         
-        // Build history for context chat
         const history = contextMessages.map(msg => ({
             role: msg.role,
             parts: [{ text: msg.text }]
@@ -412,7 +492,7 @@ const App: React.FC = () => {
         const response = await genAI.models.generateContent({
             model: "gemini-2.5-flash",
             config: {
-                 systemInstruction: "You are a helpful assistant analyzing a specific document or history record for the user."
+                 systemInstruction: "You are MrCute, a helpful assistant analyzing a specific document or history record for the user."
             },
             contents: [
                 ...history,
@@ -431,20 +511,27 @@ const App: React.FC = () => {
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files) return;
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-       const base64 = (ev.target?.result as string).split(',')[1];
-       setChatAttachment({
-          name: file.name,
-          mimeType: file.type,
-          data: base64
-       });
-    };
-    reader.readAsDataURL(file);
+    Array.from(files).forEach((file: File) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+           const base64 = (ev.target?.result as string).split(',')[1];
+           setChatAttachments(prev => [...prev, {
+              name: file.name,
+              mimeType: file.type,
+              data: base64
+           }]);
+        };
+        reader.readAsDataURL(file);
+    });
+    
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachment = (index: number) => {
+      setChatAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   const startEdit = (id: string, currentText: string) => {
@@ -511,11 +598,9 @@ const App: React.FC = () => {
         const base64Data = e.target?.result as string;
         const cleanBase64 = base64Data.split(',')[1];
         
-        // Preview handling
         if (file.type.startsWith('image/')) {
             setUploadImagePreview(base64Data);
         } else {
-            // For non-images, we store base64 but render icon
             setUploadImagePreview(base64Data); 
         }
         
@@ -525,7 +610,6 @@ const App: React.FC = () => {
         let parts: any[] = [];
         let prompt = "";
 
-        // Determine prompts based on file type
         if (file.type.startsWith('image/')) {
             prompt = "Analyze this image. 1. QUIZ DETECTION: Check if this is a quiz/test. If yes, list answers. 2. SUMMARY: Provide a detailed summary.";
             parts = [{ inlineData: { mimeType: file.type, data: cleanBase64 } }, { text: prompt }];
@@ -536,7 +620,6 @@ const App: React.FC = () => {
             prompt = "Listen to this audio. 1. SUMMARY: Provide a comprehensive transcription and summary of the spoken content. 2. KEY POINTS: List the most important takeaways.";
             parts = [{ inlineData: { mimeType: file.type, data: cleanBase64 } }, { text: prompt }];
         } else {
-            // Text Fallback
             const text = atob(cleanBase64);
             prompt = "Analyze this text. 1. QUIZ DETECTION: Check for questions. 2. SUMMARY: Summarize content.";
             parts = [{ text: prompt + "\n\n" + text.substring(0, 30000) }];
@@ -551,7 +634,6 @@ const App: React.FC = () => {
         setUploadResult(responseText);
         setUploadStatus('done');
 
-        // Save to history
         addToHistory('upload', `Upload: ${file.name}`, responseText, responseText.substring(0, 100) + '...', base64Data, file.type);
       };
 
@@ -593,9 +675,8 @@ const App: React.FC = () => {
                   <div className="bg-gradient-to-r from-blue-500 to-indigo-500 dark:from-blue-600 dark:to-indigo-600 rounded-xl p-4 shadow-lg border border-blue-400/30">
                     <div className="flex items-center gap-2 text-blue-50 dark:text-blue-100 text-xs font-bold uppercase tracking-wider mb-2">
                       <span className="w-2 h-2 rounded-full bg-white animate-pulse"/>
-                      AI Answer
+                      MrCute Answer
                     </div>
-                    {/* Explicit bold styling for answers */}
                     <p className="text-white font-extrabold text-lg leading-relaxed drop-shadow-sm">
                       {segment.trim()}
                     </p>
@@ -629,7 +710,6 @@ const App: React.FC = () => {
 
   const EmbeddedChat = ({ contextText, contextImage, mimeType }: { contextText: string, contextImage?: string, mimeType?: string }) => {
      const scrollRef = useRef<HTMLDivElement>(null);
-     
      useEffect(() => {
         if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
      }, [contextMessages]);
@@ -637,15 +717,15 @@ const App: React.FC = () => {
      return (
         <div className="flex flex-col h-[400px] border-t border-slate-200 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-900/30 mt-6 rounded-t-2xl">
             <div className="p-3 bg-white dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/50 text-center">
-                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Ask AI about this content</span>
+                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Ask MrCute about this content</span>
             </div>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-3">
                {contextMessages.map((msg) => (
                   <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                      <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
-                        msg.role === 'user' 
-                        ? 'bg-blue-600 text-white rounded-br-sm' 
-                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-bl-sm border border-slate-200 dark:border-slate-700'
+                         msg.role === 'user' 
+                         ? 'bg-blue-600 text-white rounded-br-sm' 
+                         : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-bl-sm border border-slate-200 dark:border-slate-700'
                      }`}>
                         {msg.text}
                      </div>
@@ -684,11 +764,9 @@ const App: React.FC = () => {
      );
   };
 
-  // --- Main Render ---
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#0b1121] text-slate-900 dark:text-slate-100 transition-colors duration-300">
       
-      {/* API Key Modal - Force Prompt if missing or invalid */}
       {showApiKeyModal && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700">
@@ -697,7 +775,7 @@ const App: React.FC = () => {
                </div>
                <h2 className="text-xl font-bold text-center mb-2 dark:text-white">API Key Required</h2>
                <p className="text-center text-slate-600 dark:text-slate-400 text-sm mb-6">
-                 Your previous API key was revoked by Google because it was leaked in public code. Please enter a <strong>new API Key</strong> below to continue.
+                 Your previous API key was revoked by Google. Please enter a <strong>new API Key</strong> below.
                </p>
                <input 
                  type="text" 
@@ -725,29 +803,156 @@ const App: React.FC = () => {
          </div>
       )}
 
+      {/* Avatar Selection Modal */}
+      {showAvatarModal && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto" onClick={() => setShowAvatarModal(false)}>
+              <div className="bg-white dark:bg-[#161e32] p-6 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-200 dark:border-slate-700 transform transition-all scale-100 animate-fade-in my-8" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-xl font-bold text-slate-900 dark:text-white">Choose Your Avatar</h3>
+                      <button onClick={() => setShowAvatarModal(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><CloseIcon/></button>
+                  </div>
+                  
+                  {/* Standard Presets */}
+                  <div className="mb-6">
+                     <h4 className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">Presets</h4>
+                     <div className="grid grid-cols-4 gap-4">
+                        {AVATAR_SEEDS.map(seed => (
+                           <button 
+                             key={seed}
+                             onClick={() => {
+                                 setSettings(s => ({...s, avatarSeed: seed, customAvatar: null}));
+                                 setShowAvatarModal(false);
+                             }}
+                             className={`p-2 rounded-2xl border transition-all duration-200 transform hover:scale-105 ${
+                                settings.avatarSeed === seed && !settings.customAvatar
+                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-500/30' 
+                                : 'border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-600'
+                             }`}
+                           >
+                              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`} alt={seed} className="w-full h-auto" />
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+
+                  {/* AI Generator Section */}
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                      <div className="flex items-center gap-2 mb-3">
+                         <div className="p-1.5 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-lg">
+                           <SparklesIcon />
+                         </div>
+                         <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">AI Avatar Generator</h4>
+                      </div>
+                      
+                      <div className="flex gap-2 mb-3">
+                         <input 
+                           type="text" 
+                           value={avatarPrompt}
+                           onChange={(e) => setAvatarPrompt(e.target.value)}
+                           className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500 dark:text-white"
+                           placeholder="Describe your avatar (e.g., Cyberpunk ninja)"
+                         />
+                         <button 
+                           onClick={handleGenerateAvatar}
+                           disabled={isGeneratingAvatar || !avatarPrompt.trim()}
+                           className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 transition-colors"
+                         >
+                           {isGeneratingAvatar ? '...' : 'Generate'}
+                         </button>
+                      </div>
+
+                      {generatedAvatar && (
+                         <div className="flex flex-col items-center animate-fade-in">
+                            <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-purple-500 shadow-lg mb-3">
+                               <img src={generatedAvatar} alt="Generated" className="w-full h-full object-cover" />
+                            </div>
+                            <button 
+                               onClick={() => {
+                                  setSettings(s => ({...s, customAvatar: generatedAvatar}));
+                                  setShowAvatarModal(false);
+                               }}
+                               className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl hover:opacity-90 transition-opacity"
+                            >
+                               Use this Avatar
+                            </button>
+                         </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Top Bar */}
       <header className="px-6 py-5 flex justify-between items-center bg-white/80 dark:bg-[#0b1121]/80 backdrop-blur-md sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-blue-600 dark:text-blue-500">
             MRCUTE <span className="text-slate-800 dark:text-white">AI</span>
           </h1>
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">Smart Assistant & Notes</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">Welcome, {settings.userName}</p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-400 p-[2px]">
+        <button 
+           onClick={() => setShowAvatarModal(true)}
+           className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-400 p-[2px] cursor-pointer hover:scale-110 transition-transform active:scale-95 shadow-md"
+        >
            <div className="w-full h-full rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
-             {/* Avatar placeholder */}
-             <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User" />
+             {settings.customAvatar ? (
+               <img src={settings.customAvatar} alt="User" className="w-full h-full object-cover" />
+             ) : (
+               <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${settings.avatarSeed}`} alt="User" />
+             )}
            </div>
-        </div>
+        </button>
       </header>
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden relative">
         
+        {/* VOICE CHAT OVERLAY */}
+        {isVoiceChatMode && (
+            <div className="absolute inset-0 z-50 bg-[#0b1121] flex flex-col items-center justify-center p-6 animate-fade-in">
+                <div className="mb-10 text-center">
+                    <h2 className="text-3xl font-bold text-white mb-2">Voice Chat</h2>
+                    <p className="text-slate-400 text-sm">Conversation with MrCute</p>
+                </div>
+                
+                <div className="relative w-48 h-48 flex items-center justify-center mb-12">
+                     {/* Ripples */}
+                     <div className={`absolute inset-0 bg-blue-500/20 rounded-full ${isConnected ? 'animate-ripple' : ''}`} style={{animationDelay: '0s'}}></div>
+                     <div className={`absolute inset-0 bg-blue-500/20 rounded-full ${isConnected ? 'animate-ripple' : ''}`} style={{animationDelay: '1s'}}></div>
+                     
+                     {/* Main Circle */}
+                     <div className={`relative z-10 w-32 h-32 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(37,99,235,0.5)] transition-all duration-300 ${isAiSpeaking ? 'bg-gradient-to-br from-green-400 to-emerald-600 scale-110 shadow-emerald-500/50' : 'bg-gradient-to-br from-blue-600 to-purple-600'}`}>
+                         <div className="w-24 h-24 bg-[#0b1121] rounded-full flex items-center justify-center overflow-hidden">
+                              {/* Visualizer inside */}
+                              {isConnected && <Visualizer volume={volume} isActive={isConnected} />}
+                              {!isConnected && isConnecting && <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
+                         </div>
+                     </div>
+                </div>
+
+                <div className="w-full max-w-md h-32 overflow-y-auto mb-10 text-center px-4 custom-scrollbar">
+                     <p className={`text-lg font-medium transition-colors duration-300 ${isAiSpeaking ? 'text-green-400' : 'text-slate-200'}`}>
+                         {isAiSpeaking 
+                            ? "MrCute is Speaking..." 
+                            : transcripts.length > 0 && !isConnecting
+                               ? (transcripts[transcripts.length - 1].role === 'user' ? "Listening..." : "Thinking...")
+                               : (isConnecting ? "Connecting..." : "Listening...")}
+                     </p>
+                </div>
+
+                <button 
+                  onClick={handleVoiceChatEnd}
+                  className="bg-red-500 hover:bg-red-600 text-white px-8 py-4 rounded-full font-bold shadow-lg transition-transform hover:scale-105 flex items-center gap-3"
+                >
+                   <PhoneOffIcon />
+                   End Call
+                </button>
+            </div>
+        )}
+
         {/* HOME TAB */}
-        {activeTab === 'home' && (
+        {activeTab === 'home' && !isVoiceChatMode && (
           <div className="h-full flex flex-col p-4">
-            {/* Transcript Card */}
             <div className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl p-5 shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col relative overflow-hidden transition-colors duration-300">
               <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-100 dark:border-slate-700">
                 <div className="flex items-center gap-3">
@@ -757,17 +962,16 @@ const App: React.FC = () => {
                    <div>
                      <h2 className="font-bold text-slate-800 dark:text-white">Live Transcript</h2>
                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                       {isConnected ? 'Listening & Analyzing...' : 'Ready to record'}
+                       {isConnected ? 'Listening & Analyzing...' : isConnecting ? 'Connecting...' : 'Ready to record'}
                      </p>
                    </div>
                 </div>
                 <div className="flex items-center gap-3">
-                   {/* Language Selector */}
                    <select 
                      value={targetLanguage}
                      onChange={(e) => setTargetLanguage(e.target.value)}
                      className="bg-slate-100 dark:bg-slate-800 text-xs font-medium px-3 py-1.5 rounded-lg outline-none border-none text-slate-700 dark:text-slate-300"
-                     disabled={isConnected}
+                     disabled={isConnected || isConnecting}
                    >
                      <option>English</option>
                      <option>Spanish</option>
@@ -802,7 +1006,6 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Error Banner */}
               {error && (
                 <div className="absolute bottom-4 left-4 right-4 bg-red-500/90 text-white p-3 rounded-xl flex items-center gap-3 text-sm backdrop-blur-sm animate-fade-in">
                   <AlertIcon />
@@ -811,34 +1014,38 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* Mic Control */}
             <div className="h-32 flex items-center justify-center relative">
                {isConnected && (
                  <div className="absolute w-24 h-24 bg-blue-500/20 rounded-full animate-ripple"></div>
                )}
                <button 
                  onClick={isConnected ? handleDisconnect : handleConnect}
+                 disabled={isConnecting}
                  className={`relative z-10 w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 ${
                    isConnected 
                    ? 'bg-red-500 hover:bg-red-600 text-white rotate-0' 
-                   : 'bg-gradient-to-br from-blue-500 to-cyan-500 text-white hover:shadow-blue-500/50'
+                   : isConnecting 
+                     ? 'bg-slate-400 cursor-not-allowed'
+                     : 'bg-gradient-to-br from-blue-500 to-cyan-500 text-white hover:shadow-blue-500/50'
                  }`}
                >
                  {isConnected ? (
                    <div className="w-8 h-8 bg-white rounded-md"></div>
+                 ) : isConnecting ? (
+                   <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
                  ) : (
                    <MicIcon className="w-10 h-10" />
                  )}
                </button>
                <p className="absolute bottom-4 text-xs font-medium text-slate-400 dark:text-slate-500">
-                 {isConnected ? 'Tap to stop' : 'Tap to start recording'}
+                 {isConnected ? 'Tap to stop' : isConnecting ? 'Connecting...' : 'Tap to start recording'}
                </p>
             </div>
           </div>
         )}
 
         {/* HISTORY TAB */}
-        {activeTab === 'history' && (
+        {activeTab === 'history' && !isVoiceChatMode && (
            <div className="h-full flex flex-col p-4 bg-slate-50 dark:bg-[#0b1121]">
               {!showHistoryDetail ? (
                 <>
@@ -851,7 +1058,7 @@ const App: React.FC = () => {
                         <div 
                           key={item.id} 
                           onClick={() => setShowHistoryDetail(item)}
-                          className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all cursor-pointer group"
+                          className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all cursor-pointer group relative"
                         >
                           <div className="flex justify-between items-start mb-2">
                              <div className="flex items-center gap-3">
@@ -867,7 +1074,10 @@ const App: React.FC = () => {
                                   <p className="text-xs text-slate-500">{new Date(item.date).toLocaleString()}</p>
                                 </div>
                              </div>
-                             <ChevronRight />
+                             <div className="flex gap-2">
+                                <button onClick={(e) => deleteHistoryItem(item.id, e)} className="p-2 text-slate-400 hover:text-red-500 z-10 relative"><TrashIcon /></button>
+                                <ChevronRight />
+                             </div>
                           </div>
                           <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 pl-14">
                             {item.preview}
@@ -881,7 +1091,7 @@ const App: React.FC = () => {
                 <div className="h-full flex flex-col">
                   <div className="flex items-center gap-2 mb-4">
                      <button onClick={() => setShowHistoryDetail(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full">
-                       <ChevronRight /> {/* Rotated by css ideally, but simpler to just use generic back icon or text */}
+                       <ChevronRight /> 
                        <span className="sr-only">Back</span>
                      </button>
                      <h2 className="font-bold text-lg text-slate-900 dark:text-white">Detail View</h2>
@@ -900,7 +1110,7 @@ const App: React.FC = () => {
                         </div>
                      )}
 
-                     <div className={`prose dark:prose-invert max-w-none ${settings.textSize}`}>
+                     <div className="prose dark:prose-invert max-w-none text-sm">
                        {Array.isArray(showHistoryDetail.content) ? (
                          showHistoryDetail.content.map((msg: any) => (
                            <div key={msg.id} className="mb-4">
@@ -915,7 +1125,6 @@ const App: React.FC = () => {
                        )}
                      </div>
 
-                     {/* Embedded Chat for History */}
                      <EmbeddedChat 
                         contextText={
                            Array.isArray(showHistoryDetail.content) 
@@ -932,13 +1141,27 @@ const App: React.FC = () => {
         )}
 
         {/* AI CHAT TAB */}
-        {activeTab === 'aichat' && (
+        {activeTab === 'aichat' && !isVoiceChatMode && (
           <div className="h-full flex flex-col p-4 bg-slate-50 dark:bg-[#0b1121]">
              <div className="flex justify-between items-center mb-4 px-2">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                   AI Chat <span className="text-xs font-normal px-2 py-1 bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 rounded-full">Gemini 2.5</span>
-                </h2>
-                <div className="flex gap-2">
+                <div className="flex flex-col">
+                   <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      AI Chat <span className="text-xs font-normal px-2 py-1 bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 rounded-full">MrCute</span>
+                   </h2>
+                </div>
+                <div className="flex items-center gap-2">
+                   <select 
+                     value={targetLanguage}
+                     onChange={(e) => setTargetLanguage(e.target.value)}
+                     className="bg-slate-200 dark:bg-slate-800 text-xs font-medium px-2 py-1.5 rounded-lg outline-none border-none text-slate-700 dark:text-slate-300 mr-1"
+                   >
+                     <option>English</option>
+                     <option>Spanish</option>
+                     <option>French</option>
+                     <option>German</option>
+                     <option>Chinese</option>
+                     <option>Japanese</option>
+                   </select>
                    <button onClick={handleSaveChat} className="p-2 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400" title="Save Chat">
                       <SaveIcon />
                    </button>
@@ -948,21 +1171,31 @@ const App: React.FC = () => {
                 </div>
              </div>
 
-             <div ref={chatScrollRef} className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl p-4 shadow-sm border border-slate-200 dark:border-slate-800 overflow-y-auto space-y-4 custom-scrollbar mb-4 relative">
+             <div ref={chatScrollRef} className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl p-4 shadow-sm border border-slate-200 dark:border-slate-800 overflow-y-auto space-y-6 custom-scrollbar mb-4 relative">
                 {chatMessages.length === 0 ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 opacity-60 pointer-events-none">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 opacity-60">
                      <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-4">
                         <ChatIcon active={true}/>
                      </div>
                      <p>Ask anything about your notes!</p>
+                     
+                     <div className="mt-8">
+                       <button 
+                         onClick={handleVoiceChatStart}
+                         className="flex items-center gap-2 px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-full shadow-lg transition-transform hover:scale-105 pointer-events-auto"
+                       >
+                         <PhoneIcon className="w-5 h-5"/>
+                         Start Voice Chat
+                       </button>
+                     </div>
                   </div>
                 ) : (
                   chatMessages.map((msg) => (
-                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                       <div className={`max-w-[85%] p-3 rounded-2xl ${settings.textSize} ${
+                    <div key={msg.id} className={`flex w-full animate-fade-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                       <div className={`max-w-[85%] p-5 rounded-3xl text-base leading-relaxed shadow-sm ${
                          msg.role === 'user' 
-                           ? 'bg-blue-600 text-white rounded-br-sm shadow-md shadow-blue-500/20' 
-                           : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm border border-slate-200 dark:border-slate-600 shadow-sm'
+                           ? 'bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 text-slate-800 dark:text-slate-100 rounded-br-none ml-auto' 
+                           : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-none mr-auto'
                        }`}>
                           {renderFormattedContent(msg.text, msg.role, msg.id, 'chat')}
                        </div>
@@ -971,7 +1204,7 @@ const App: React.FC = () => {
                 )}
                 {isChatLoading && (
                   <div className="flex justify-start animate-fade-in">
-                     <div className="bg-white dark:bg-slate-700 p-4 rounded-2xl rounded-bl-sm border border-slate-200 dark:border-slate-600 shadow-sm">
+                     <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl rounded-bl-none border border-slate-200 dark:border-slate-700 shadow-sm">
                         <div className="flex space-x-1.5">
                            <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
                            <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
@@ -983,69 +1216,93 @@ const App: React.FC = () => {
              </div>
 
              {/* Chat Input Bar */}
-             <div className="flex gap-2 items-end bg-white dark:bg-[#161e32] p-2 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-800">
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  className="hidden"
-                  accept="image/*,application/pdf"
-                  onChange={handleFileSelect}
-                />
+             <div className="flex flex-col gap-2 bg-white dark:bg-[#161e32] p-2 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-800">
                 
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`p-3 rounded-xl transition-colors ${
-                     chatAttachment ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500'
-                  }`}
-                  title="Attach Image/PDF"
-                >
-                  <PaperclipIcon />
-                </button>
+                {/* Attachment Preview Area */}
+                {chatAttachments.length > 0 && (
+                  <div className="flex gap-3 overflow-x-auto p-2 pb-3 mb-1 border-b border-slate-100 dark:border-slate-700 custom-scrollbar">
+                    {chatAttachments.map((att, idx) => (
+                       <div key={idx} className="relative flex-shrink-0 group">
+                          {att.mimeType.startsWith('image/') ? (
+                             <img src={`data:${att.mimeType};base64,${att.data}`} alt="preview" className="h-20 w-20 object-cover rounded-lg border border-slate-200 dark:border-slate-600" />
+                          ) : (
+                             <div className="h-20 w-20 flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600">
+                                <span className="text-xs font-bold text-slate-500">PDF</span>
+                             </div>
+                          )}
+                          <button 
+                            onClick={() => removeAttachment(idx)}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors"
+                          >
+                             <CloseIcon />
+                          </button>
+                          <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] truncate px-1 rounded-b-lg">
+                             {att.name}
+                          </span>
+                       </div>
+                    ))}
+                  </div>
+                )}
 
-                <div className="flex-1 flex flex-col gap-2">
-                   {chatAttachment && (
-                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg text-xs">
-                         <span className="font-semibold text-blue-600 dark:text-blue-400 truncate max-w-[150px]">{chatAttachment.name}</span>
-                         <button onClick={() => setChatAttachment(null)} className="text-slate-500 hover:text-red-500"><CloseIcon /></button>
-                      </div>
-                   )}
-                   <textarea
-                     value={chatInput}
-                     onChange={(e) => setChatInput(e.target.value)}
-                     onKeyDown={(e) => {
-                       if (e.key === 'Enter' && !e.shiftKey) {
-                         e.preventDefault();
-                         handleSendMessage();
-                       }
-                     }}
-                     placeholder={isDictating ? "Listening..." : "Type or speak..."}
-                     className={`w-full bg-transparent outline-none text-slate-800 dark:text-white max-h-32 resize-none py-2 px-2 text-sm ${isDictating ? 'placeholder-red-400 animate-pulse' : ''}`}
-                     rows={1}
-                   />
+                <div className="flex gap-2 items-end">
+                  <input 
+                    type="file" 
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="image/*,application/pdf"
+                    multiple // Allow multiple
+                    onChange={handleFileSelect}
+                  />
+                  
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`p-3 rounded-xl transition-colors ${
+                       chatAttachments.length > 0 ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500'
+                    }`}
+                    title="Attach Images/PDFs"
+                  >
+                    <PaperclipIcon />
+                  </button>
+
+                  <div className="flex-1 flex flex-col gap-2">
+                     <textarea
+                       value={chatInput}
+                       onChange={(e) => setChatInput(e.target.value)}
+                       onKeyDown={(e) => {
+                         if (e.key === 'Enter' && !e.shiftKey) {
+                           e.preventDefault();
+                           handleSendMessage();
+                         }
+                       }}
+                       placeholder={isDictating ? "Listening..." : "Type or speak..."}
+                       className={`w-full bg-transparent outline-none text-slate-800 dark:text-white max-h-32 resize-none py-2 px-2 text-sm ${isDictating ? 'placeholder-red-400 animate-pulse' : ''}`}
+                       rows={1}
+                     />
+                  </div>
+
+                  {/* Voice Chat Trigger Button */}
+                  <button 
+                     onClick={handleVoiceChatStart}
+                     className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-xl shadow-md transition-all active:scale-95"
+                     title="Start Voice Chat with AI"
+                  >
+                     <PhoneIcon className="w-5 h-5"/>
+                  </button>
+
+                  <button 
+                    onClick={handleSendMessage}
+                    disabled={(!chatInput.trim() && chatAttachments.length === 0) || isChatLoading}
+                    className="p-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white rounded-xl shadow-md transition-all active:scale-95"
+                  >
+                    <SendIcon />
+                  </button>
                 </div>
-
-                <button 
-                   onClick={startDictation}
-                   className={`p-3 rounded-xl transition-colors ${
-                     isDictating ? 'bg-red-500 text-white animate-pulse' : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500'
-                   }`}
-                >
-                   <MicIcon className="w-5 h-5"/>
-                </button>
-
-                <button 
-                  onClick={handleSendMessage}
-                  disabled={(!chatInput.trim() && !chatAttachment) || isChatLoading}
-                  className="p-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white rounded-xl shadow-md transition-all active:scale-95"
-                >
-                  <SendIcon />
-                </button>
              </div>
           </div>
         )}
 
         {/* UPLOAD TAB */}
-        {activeTab === 'upload' && (
+        {activeTab === 'upload' && !isVoiceChatMode && (
           <div className="h-full flex flex-col p-6 bg-slate-50 dark:bg-[#0b1121]">
             {!uploadResult ? (
               <div className="h-full flex flex-col justify-center">
@@ -1102,7 +1359,6 @@ const App: React.FC = () => {
                  </div>
 
                  <div className="flex-1 bg-white dark:bg-[#161e32] rounded-3xl overflow-hidden shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                    {/* Image/File Preview Header */}
                     <div className="h-48 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-center relative overflow-hidden">
                        {uploadImagePreview && (
                           uploadFileType?.startsWith('image/') ? (
@@ -1118,15 +1374,12 @@ const App: React.FC = () => {
                        )}
                     </div>
                     
-                    {/* Content */}
                     <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                        <h3 className="text-xl font-bold mb-4 text-slate-900 dark:text-white border-l-4 border-blue-500 pl-3">Analysis Result</h3>
                        <div className="prose dark:prose-invert max-w-none text-slate-600 dark:text-slate-300">
                           <div className="whitespace-pre-wrap">{uploadResult}</div>
                        </div>
                     </div>
-
-                    {/* Context Chat removed for Upload view per request, kept in History Detail */}
                  </div>
               </div>
             )}
@@ -1134,11 +1387,27 @@ const App: React.FC = () => {
         )}
 
         {/* SETTINGS TAB */}
-        {activeTab === 'settings' && (
+        {activeTab === 'settings' && !isVoiceChatMode && (
           <div className="h-full p-6 bg-slate-50 dark:bg-[#0b1121]">
              <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Settings</h2>
              
              <div className="space-y-4">
+                <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                   <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">Profile</h3>
+                   <div className="mb-4">
+                      <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Your Name</label>
+                      <input 
+                         type="text" 
+                         value={settings.userName} 
+                         onChange={(e) => setSettings(s => ({...s, userName: e.target.value}))}
+                         className="w-full p-2 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 outline-none text-slate-800 dark:text-slate-100 text-sm"
+                      />
+                   </div>
+                   <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Tap your avatar in the top right corner to change it.
+                   </p>
+                </div>
+
                 <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                    <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">API Key</h3>
                    <div className="flex flex-col gap-2">
@@ -1174,48 +1443,6 @@ const App: React.FC = () => {
                       </button>
                    </div>
                 </div>
-
-                <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                   <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">AI Voice</h3>
-                   <div className="grid grid-cols-2 gap-2">
-                      {['Kore', 'Fenrir', 'Puck', 'Charon'].map(voice => (
-                        <button
-                          key={voice}
-                          onClick={() => setSettings(s => ({...s, voice}))}
-                          className={`p-3 rounded-xl border text-sm transition-all ${
-                            settings.voice === voice 
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-bold' 
-                            : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
-                          }`}
-                        >
-                           {voice}
-                        </button>
-                      ))}
-                   </div>
-                </div>
-
-                <div className="bg-white dark:bg-[#161e32] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                   <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-200">Text Size</h3>
-                   <div className="flex gap-2">
-                      {[
-                        { label: 'Small', val: 'text-xs' },
-                        { label: 'Normal', val: 'text-sm' },
-                        { label: 'Large', val: 'text-base' },
-                      ].map(opt => (
-                        <button
-                          key={opt.val}
-                          onClick={() => setSettings(s => ({...s, textSize: opt.val}))}
-                          className={`flex-1 p-2 rounded-xl text-sm transition-all ${
-                            settings.textSize === opt.val
-                            ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-lg' 
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                           {opt.label}
-                        </button>
-                      ))}
-                   </div>
-                </div>
              </div>
           </div>
         )}
@@ -1226,6 +1453,7 @@ const App: React.FC = () => {
       <nav className="h-20 bg-white dark:bg-[#161e32] border-t border-slate-200 dark:border-slate-800 flex justify-around items-center px-2 pb-2 z-20">
         <button 
           onClick={() => setActiveTab('home')}
+          disabled={isVoiceChatMode}
           className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'home' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
         >
           <HomeIcon active={activeTab === 'home'} />
@@ -1234,15 +1462,16 @@ const App: React.FC = () => {
         
         <button 
           onClick={() => setActiveTab('history')}
+          disabled={isVoiceChatMode}
           className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'history' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
         >
           <HistoryIcon active={activeTab === 'history'} />
           <span className="text-[10px] font-medium">History</span>
         </button>
 
-        {/* Central AI Chat Button */}
         <button 
            onClick={() => setActiveTab('aichat')}
+           disabled={isVoiceChatMode}
            className={`relative -top-6 w-14 h-14 rounded-full flex items-center justify-center shadow-xl shadow-blue-500/30 transition-transform hover:scale-110
              ${activeTab === 'aichat' 
                ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white ring-4 ring-white dark:ring-[#0b1121]' 
@@ -1255,6 +1484,7 @@ const App: React.FC = () => {
 
         <button 
           onClick={() => setActiveTab('upload')}
+          disabled={isVoiceChatMode}
           className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'upload' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
         >
           <UploadIcon active={activeTab === 'upload'} />
@@ -1263,6 +1493,7 @@ const App: React.FC = () => {
         
         <button 
           onClick={() => setActiveTab('settings')}
+          disabled={isVoiceChatMode}
           className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 w-16 ${activeTab === 'settings' ? 'text-blue-600 dark:text-blue-400 -translate-y-2 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
         >
           <SettingsIcon active={activeTab === 'settings'} />
